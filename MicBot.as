@@ -4,7 +4,7 @@ void println(string text) { print(text + "\n"); }
 dictionary g_player_states;
 
 class PlayerState {
-	bool isBot = true; // send bot commands to this player?
+	bool isBot = false; // send bot commands to this player?
 	bool ttsEnabled = true;
 }
 
@@ -32,6 +32,29 @@ void PluginInit()
 	g_Module.ScriptInfo.SetContactInfo( "https://github.com/wootguy/" );
 	
 	g_Hooks.RegisterHook( Hooks::Player::ClientSay, @ClientSay );
+	
+	g_Scheduler.SetInterval("kill_bots_in_survival", 3.0f, -1);
+}
+
+void kill_bots_in_survival() {
+	if (!g_SurvivalMode.IsActive()) {
+		return;
+	}
+	
+	for ( int i = 1; i <= g_Engine.maxClients; i++ ) {
+		CBasePlayer@ p = g_PlayerFuncs.FindPlayerByIndex(i);
+		
+		if (p is null or !p.IsConnected() or !p.IsAlive()) {
+			continue;
+		}
+		
+		PlayerState@ pstate = getPlayerState(p);
+		
+		if (pstate.isBot) {
+			g_PlayerFuncs.ClientPrint(p, HUD_PRINTTALK, "[MicBot] Bots aren't allowed to live in survival mode.\n");
+			g_EntityFuncs.Remove(p);
+		}
+	}
 }
 
 bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inConsole) {
@@ -150,10 +173,10 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			}
 
 			return true;
-		} else if (state.ttsEnabled and chatText.Length() > 0) {
+		} else if (state.ttsEnabled and chatText.Length() > 0 and !state.isBot) {			
 			// message starts repeating due to broken newlines if too long
-			if (chatText.Length() > 111) {
-				chatText = chatText.SubString(0, 111);
+			if (string(plr.pev.netname).Length() + chatText.Length() >= 118) {
+				chatText = chatText.SubString(0, 118 - string(plr.pev.netname).Length());
 			}
 		
 			message_bots(plr, chatText);
@@ -232,6 +255,7 @@ CClientCommand _g4("mstop", "Spectate commands", @consoleCmd );
 CClientCommand _g5("mlang", "Spectate commands", @consoleCmd );
 CClientCommand _g6("mpitch", "Spectate commands", @consoleCmd );
 CClientCommand _g7("mhelp", "Spectate commands", @consoleCmd );
+CClientCommand _g8("mbot", "Spectate commands", @consoleCmd );
 
 void consoleCmd( const CCommand@ args ) {
 	CBasePlayer@ plr = g_ConCommandSystem.GetCurrentPlayer();

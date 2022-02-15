@@ -1,99 +1,132 @@
-# pip install pafy gtts python-vlc pyglet pywin32 psutil pydub
-# pip install --no-deps -U yt-dlp
+# pip install pafy gtts python-vlc pyglet pywin32 psutil pydub youtube_dl yt-dlp
+# If yt-dlp fails, try: pip install --no-deps -U yt-dlp
 # edit backend_youtube_dl.py in pafy library:
 #    replace youtube_dl import with this:
 #        import yt_dlp as youtube_dl
 #    Remove like/dislike stuff from info
 # Windows notes:
 #    Need to install 64 bit version of VLC if 64 bit version of python, or 32 bit if 32 bit python
+#	 Need to install ffmpeg and add it to system PATH
 #    Might need to edit script to point to VLC folder to load DLLs
 #    Some .net or visual studio stuff might be needed to install pip stuff
+# Linux notes:
+#    sudo apt install xdotool python3-gst-1.0 ffmpeg vlc
+#    To get sven to record from speakers (not sure if all of these steps were required):
+#        sudo apt install pavucontrol
+#        pactl load-module module-loopback latency_msec=1
+#        Set sound card profile to "Off" in Configuration tab (this will disable speaker output but I want that anyway)
+#    yt_dlp can play more videos, but will crash on some too. So best to not make the backend_youtube_dl.py edit
+# Usage:
+#     - Start sven co-op
+#     - bind F4 "+voicerecord;-voicerecord;+voicerecord"
+#     - say .mbot
+#     - Keep the game in focus and without the menu/console showing.
+#	    The script will continue pressing F4 to keep the mic enabled across level changes
+#     - Start this script
 
-import time, os, sys
+import time, os, sys, queue, signal
 from threading import Thread
 import pafy
 import vlc
 from gtts import gTTS
 import pyglet
 from pyglet.media import Player
-import win32api, win32gui, win32con, ctypes, win32process, psutil
 from pydub import AudioSegment, effects
 
-import ctypes, time
-# Bunch of stuff so that the script can send keystrokes to game #
+if os.name == 'nt':
+	import win32api, win32gui, win32con, ctypes, win32process, psutil
+	import ctypes, time
+	# Bunch of stuff so that the script can send keystrokes to game #
 
-SendInput = ctypes.windll.user32.SendInput
+	SendInput = ctypes.windll.user32.SendInput
 
-# C struct redefinitions 
-PUL = ctypes.POINTER(ctypes.c_ulong)
-class KeyBdInput(ctypes.Structure):
-    _fields_ = [("wVk", ctypes.c_ushort),
-                ("wScan", ctypes.c_ushort),
-                ("dwFlags", ctypes.c_ulong),
-                ("time", ctypes.c_ulong),
-                ("dwExtraInfo", PUL)]
+	# C struct redefinitions 
+	PUL = ctypes.POINTER(ctypes.c_ulong)
+	class KeyBdInput(ctypes.Structure):
+		_fields_ = [("wVk", ctypes.c_ushort),
+					("wScan", ctypes.c_ushort),
+					("dwFlags", ctypes.c_ulong),
+					("time", ctypes.c_ulong),
+					("dwExtraInfo", PUL)]
 
-class HardwareInput(ctypes.Structure):
-    _fields_ = [("uMsg", ctypes.c_ulong),
-                ("wParamL", ctypes.c_short),
-                ("wParamH", ctypes.c_ushort)]
+	class HardwareInput(ctypes.Structure):
+		_fields_ = [("uMsg", ctypes.c_ulong),
+					("wParamL", ctypes.c_short),
+					("wParamH", ctypes.c_ushort)]
 
-class MouseInput(ctypes.Structure):
-    _fields_ = [("dx", ctypes.c_long),
-                ("dy", ctypes.c_long),
-                ("mouseData", ctypes.c_ulong),
-                ("dwFlags", ctypes.c_ulong),
-                ("time",ctypes.c_ulong),
-                ("dwExtraInfo", PUL)]
+	class MouseInput(ctypes.Structure):
+		_fields_ = [("dx", ctypes.c_long),
+					("dy", ctypes.c_long),
+					("mouseData", ctypes.c_ulong),
+					("dwFlags", ctypes.c_ulong),
+					("time",ctypes.c_ulong),
+					("dwExtraInfo", PUL)]
 
-class Input_I(ctypes.Union):
-    _fields_ = [("ki", KeyBdInput),
-                 ("mi", MouseInput),
-                 ("hi", HardwareInput)]
+	class Input_I(ctypes.Union):
+		_fields_ = [("ki", KeyBdInput),
+					 ("mi", MouseInput),
+					 ("hi", HardwareInput)]
 
-class Input(ctypes.Structure):
-    _fields_ = [("type", ctypes.c_ulong),
-                ("ii", Input_I)]
+	class Input(ctypes.Structure):
+		_fields_ = [("type", ctypes.c_ulong),
+					("ii", Input_I)]
 
-# Actuals Functions
-def PressKey(hexKeyCode):
-    extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra) )
-    x = Input( ctypes.c_ulong(1), ii_ )
-    ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+	# Actuals Functions
+	def PressKey(hexKeyCode):
+		extra = ctypes.c_ulong(0)
+		ii_ = Input_I()
+		ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra) )
+		x = Input( ctypes.c_ulong(1), ii_ )
+		ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
-def ReleaseKey(hexKeyCode):
-    extra = ctypes.c_ulong(0)
-    ii_ = Input_I()
-    ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra) )
-    x = Input( ctypes.c_ulong(1), ii_ )
-    ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+	def ReleaseKey(hexKeyCode):
+		extra = ctypes.c_ulong(0)
+		ii_ = Input_I()
+		ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra) )
+		x = Input( ctypes.c_ulong(1), ii_ )
+		ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
 
-# http://www.flint.jp/misc/?q=dik&lang=en
-def PressButton(code):
-	global sven_hwnd
+	# http://www.flint.jp/misc/?q=dik&lang=en
+	def PressButton(code):
+		global sven_hwnd
 
-	win32gui.SetForegroundWindow(sven_hwnd)
-	PressKey(code)
-	time.sleep(.05)
-	ReleaseKey(code)
+		PressKey(code)
+		time.sleep(.05)
+		ReleaseKey(code)
+		
+	def chat_sven(text):
+		pass
+else:
+	def PressButton(code):
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) F8')
+		
+	def chat_sven(text):
+		global lock_queue
+		
+		lock_queue.put(1)
+		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) y')
+		time.sleep(0.1)
+		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		lock_queue.get()
 
 def follow(thefile):
-    '''generator function that yields new lines in a file
-    '''
-    # seek the end of the file
-    thefile.seek(0, os.SEEK_END)
-    
-    # start infinite loop
-    while True:
-        # read last line of file
-        line = thefile.readline()        # sleep if file hasn't been updated
-        if not line:
-            time.sleep(0.1)
-            continue
+	'''generator function that yields new lines in a file
+	'''
+	# seek the end of the file
+	thefile.seek(0, os.SEEK_END)
+	
+	# start infinite loop
+	while True:
+		# read last line of file
+		line = thefile.readline()        # sleep if file hasn't been updated
+		if not line:
+			time.sleep(0.1)
+			continue
 
-        yield line
+		yield line
 
 players = []
 sound_threads = []
@@ -102,6 +135,8 @@ tts_id = 0
 g_accents = {}
 g_pitches = {}
 g_players = {}
+lock_queue = queue.Queue()
+
 
 def load_all_chatsounds():
 	file1 = open('chatsounds.txt', 'r')
@@ -110,7 +145,8 @@ def load_all_chatsounds():
 
 def playsound_async(speaker, sound):	
 	if speaker in g_players:
-		g_players[speaker].pause()
+		if g_players[speaker].playing:
+			g_players[speaker].pause()
 		g_players[speaker].delete()
 	
 	player = g_players[speaker] = Player()
@@ -121,14 +157,18 @@ def playsound_async(speaker, sound):
 	player.play()
 	sound_threads.append(player)
 	
-def playtube_async(url, offset):
+def playtube_async(url, offset, player):
+	global tts_id
+	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
+	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
 	try:
 		global players
 		print("Fetch best audio " + url)
 		video = pafy.new(url)
 		best = video.getbestaudio()
 		playurl = best.url
+		#print("BEST URL: " + playurl)
 		
 		print("Create vlc instance")
 		Instance = vlc.Instance()
@@ -141,16 +181,17 @@ def playtube_async(url, offset):
 		
 		players.append(player)
 		print("Play offset %d: " % offset + video.title)
+		#chat_sven("/me played: " + video.title)
 	except Exception as e:
 		print(e)
 		
-		t = Thread(target = play_tts, args =('', str(e), ))
+		chat_sven("/me failed to play a video from " + player + ".")
+		t = Thread(target = play_tts, args =('', str(e), tts_id, ))
 		t.daemon = True
 		t.start()
+		tts_id += 1
 
-def play_tts(speaker, text):	  
-	global tts_id
-	
+def play_tts(speaker, text, id):	
 	# Language in which you want to convert
 	language = 'en'
 	tld = 'com'
@@ -163,60 +204,39 @@ def play_tts(speaker, text):
 	# here we have marked slow=False. Which tells 
 	# the module that the converted audio should 
 	# have a high speed
-	print("Translating %d" % tts_id)
+	print("Translating %d" % id)
 	myobj = gTTS(text=text, tld=tld, lang=language, slow=False)
 	  
 	# Saving the converted audio in a mp3 file named
 	# welcome
-	fname = 'tts/tts%d' % tts_id + '.mp3'
+	fname = 'tts/tts%d' % id + '.mp3'
 	myobj.save(fname)
 	
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
 	totalExclaim = sum(1 for c in text if c == '!')
 	
-	for x in range(0, 10):
-		try:
-			print("Normalize %d (attempt %d)" % (tts_id, x))
-			output = 'tts/tts%d.wav' % tts_id
-			
-			rawsound = AudioSegment.from_file(fname, "mp3")  
-			normalizedsound = effects.normalize(rawsound)  
-			
-			if totalCaps > totalLower:
-				normalizedsound = normalizedsound + 1000
-			
-			normalizedsound.export(output, format="wav")
-			
-			break
-		except Exception as e:
-			print(e)
-			time.sleep(0.1)
+	print("Normalize %d" % (id))
+	output = 'tts/tts%d.wav' % id
+	
+	rawsound = AudioSegment.from_file(fname, "mp3")  
+	normalizedsound = effects.normalize(rawsound)  
+	
+	if totalCaps > totalLower:
+		normalizedsound = normalizedsound + 1000
+	
+	normalizedsound.export(output, format="wav")
 	 
-	print("Play %d" % tts_id)
+	print("Play %d" % id)
 	# Playing the converted file
 	playsound_async(speaker, output)
-	
-	tts_id += 1
-	
-	for x in range(0, 10):
-		try:
-			print("Delete attempt %d" % x)
-			if os.path.exists(fname):
-				os.remove(fname)
-			if os.path.exists(output):
-				os.remove(output)
-			break
-		except Exception as e:
-			print(e)
-			time.sleep(0.1)
+
+	os.remove(fname)
+	os.remove(output)
 	
 
 sven_root = '../../../..'
 csound_path = os.path.join(sven_root, 'svencoop_downloads/sound/twlz')
-
-def sanitize_name(name):
-	return name.replace("0", "o")
 	
 def find_console_log():
 	global sven_root
@@ -242,51 +262,27 @@ print("Following log file: " + filename)
 
 tts_enabled = True
 
-sven_hwnd = -1
-
-def winEnumHandler( hwnd, ctx ):
-	global sven_hwnd
-	
-	if win32gui.IsWindowVisible( hwnd ):
-		text = window_process_name( hwnd )
-		if not text:
-			return
-		if "svencoop.exe" == text:
-			sven_hwnd = hwnd
-			
-def window_process_name(hwnd):
-	try:
-		pid = win32process.GetWindowThreadProcessId(hwnd)
-		return(psutil.Process(pid[-1]).name())
-	except Exception as e:
-		print(e)
-		return ""
-
-win32gui.EnumWindows( winEnumHandler, None )
-if sven_hwnd == -1:
-	print("Failed to find Sven Co-op window. Is the game running?")
-	sys.exit()
-
-def type_sven(text):
-	for char in text:
-		win32api.PostMessage(sven_hwnd, win32con.WM_CHAR, ord(char), 0)
-		
-	old_hwnd = win32gui.GetForegroundWindow()
-	win32gui.SetForegroundWindow(sven_hwnd)
-	PressButton(0x1C) # enter key
-	win32gui.SetForegroundWindow(old_hwnd)
-
-
-# tell the server we're alive. It will send a new 
+# press mic record key over and over
 def heartbeat_thread():
+	global lock_queue
+	
 	while True:
-		old_hwnd = win32gui.GetForegroundWindow()
-		win32gui.SetForegroundWindow(sven_hwnd)
-		PressButton(0x3E)
-		win32gui.SetForegroundWindow(old_hwnd)
+		if lock_queue.empty():
+			PressButton(0x3E) # F4
+			PressButton(0x39) # space
+			time.sleep(0.5)
 	
-		time.sleep(1)
-	
+
+'''
+import cleverbotfree
+
+cleverbot = cleverbotfree.Cleverbot(cleverbotfree.sync_playwright())
+
+def cleverbot_chat(text):
+	return c_b.single_exchange(user_input)
+
+#c_b.close()
+'''
 
 t = Thread(target = heartbeat_thread, args =( ))
 t.daemon = True
@@ -300,7 +296,7 @@ for line in loglines:
 	
 	if line.startswith('MicBot\\'):
 		line = line[len('MicBot\\'):]
-		name = sanitize_name(line[:line.find("\\")])
+		name = line[:line.find("\\")]
 		line = line[line.find("\\")+1:]
 		print(name + ": " + line.strip())
 		
@@ -322,7 +318,7 @@ for line in loglines:
 			except Exception as e:
 				print(e)
 		
-			t = Thread(target = playtube_async, args =(args[0], offset, ))
+			t = Thread(target = playtube_async, args =(args[0], offset, name, ))
 			t.daemon = True
 			t.start()
 			continue
@@ -346,14 +342,16 @@ for line in loglines:
 				
 			if arg == "" or arg == 'speak':
 				for player in sound_threads:
-					player.pause()
+					if player.playing:
+						player.pause()
 					player.delete()
 				sound_threads = []
 			
 		
-			t = Thread(target = play_tts, args =(name, 'stop ' + arg, ))
+			t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, ))
 			t.daemon = True
 			t.start()
+			tts_id += 1
 			continue
 		
 		'''
@@ -454,22 +452,27 @@ for line in loglines:
 				if lang in valid_langs:
 					g_accents[name] = valid_langs[lang]
 					msg = valid_langs[lang]['name'] + " accent, activated"
-					t = Thread(target = play_tts, args =(name, msg, ))
+					t = Thread(target = play_tts, args =(name, msg, tts_id, ))
 					t.daemon = True
 					t.start()
+					tts_id += 1
 				else:
 					msg = "invalid accent " + lang
-					t = Thread(target = play_tts, args =(name, msg, ))
+					t = Thread(target = play_tts, args =(name, msg, tts_id, ))
 					t.daemon = True
 					t.start()
+					tts_id += 1
 				
 				continue
 			
 			if line.startswith('!'):
 				line = line[1:]
 			
-			t = Thread(target = play_tts, args =(name, line, ))
+			#print("Cleverbot: " + cleverbot_chat(line))
+			
+			t = Thread(target = play_tts, args =(name, line, tts_id, ))
 			t.start()
+			tts_id += 1
 		
 	
 	
