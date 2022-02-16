@@ -42,7 +42,6 @@ MicBot reads messages aloud and can play audio from youtube links.
     * comment out the lines that have `like_count` and `dislike_count`. As of this writing, the current version of pafy will fail to fetch youtube links because of the removal of likes/dislikes from YouTube.
     * **[Optional]** If you get "Sign in to verify your age" errors for some videos, then also replace `youtube_dl import` with `import yt_dlp as youtube_dl`. This may result in other errors or videos not playing though, so maybe try without doing this first.
 * **[Optional]** The bot will speak chat sounds by default. If you don't want that, create a file called `chatsounds.txt` next to the script. Each line should contain a single word which the bot will not speak by itself.
-videos will create visible media players on the bot's PC.
     
 ## Usage:
 1. Add `-condebug` to the launch options of Sven Co-op. Then, start the game.
