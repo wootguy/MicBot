@@ -1,28 +1,10 @@
-# pip install pafy gtts python-vlc pyglet pywin32 psutil pydub youtube_dl yt-dlp
-# If yt-dlp fails, try: pip install --no-deps -U yt-dlp
-# edit backend_youtube_dl.py in pafy library:
-#    replace youtube_dl import with this:
-#        import yt_dlp as youtube_dl
-#    Remove like/dislike stuff from info
-# Windows notes:
-#    Need to install 64 bit version of VLC if 64 bit version of python, or 32 bit if 32 bit python
-#	 Need to install ffmpeg and add it to system PATH
-#    Might need to edit script to point to VLC folder to load DLLs
-#    Some .net or visual studio stuff might be needed to install pip stuff
-# Linux notes:
-#    sudo apt install xdotool python3-gst-1.0 ffmpeg vlc
-#    To get sven to record from speakers (not sure if all of these steps were required):
-#        sudo apt install pavucontrol
-#        pactl load-module module-loopback latency_msec=1
-#        Set sound card profile to "Off" in Configuration tab (this will disable speaker output but I want that anyway)
-#    yt_dlp can play more videos, but will crash on some too. So best to not make the backend_youtube_dl.py edit
-# Usage:
-#     - Start sven co-op
-#     - bind F4 "+voicerecord;-voicerecord;+voicerecord"
-#     - say .mbot
-#     - Keep the game in focus and without the menu/console showing.
-#	    The script will continue pressing F4 to keep the mic enabled across level changes
-#     - Start this script
+# TODO:
+# reload the filename occasionaly
+# use steam ids not names (more plugin reliance tho)
+# youtube shorts links dont work
+# yt opening actual videos
+# persist settings in case of crash
+# linux mic stops working
 
 import time, os, sys, queue, signal
 from threading import Thread
@@ -271,18 +253,6 @@ def heartbeat_thread():
 			PressButton(0x3E) # F4
 			PressButton(0x39) # space
 			time.sleep(0.5)
-	
-
-'''
-import cleverbotfree
-
-cleverbot = cleverbotfree.Cleverbot(cleverbotfree.sync_playwright())
-
-def cleverbot_chat(text):
-	return c_b.single_exchange(user_input)
-
-#c_b.close()
-'''
 
 t = Thread(target = heartbeat_thread, args =( ))
 t.daemon = True
@@ -300,8 +270,8 @@ for line in loglines:
 		line = line[line.find("\\")+1:]
 		print(name + ": " + line.strip())
 		
-		if line.startswith('https://www.youtube.com') or line.startswith('!https://www.youtube.com') or line.startswith('https://youtu.be') or line.startswith('!https://youtu.be'):
-			if line.startswith("!"):
+		if line.startswith('https://www.youtube.com') or line.startswith('/https://www.youtube.com') or line.startswith('https://youtu.be') or line.startswith('/https://youtu.be'):
+			if line.startswith("/"):
 				line = line[1:]
 				
 			args = line.split()
@@ -355,7 +325,7 @@ for line in loglines:
 			continue
 		
 		'''
-		if line.startswith('!'):
+		if line.startswith('/'):
 			cmd = line[1:line.find(' ')]
 			
 			check_path = os.path.join(csound_path, cmd + '.wav')
@@ -465,10 +435,8 @@ for line in loglines:
 				
 				continue
 			
-			if line.startswith('!'):
+			if line.startswith('/'):
 				line = line[1:]
-			
-			#print("Cleverbot: " + cleverbot_chat(line))
 			
 			t = Thread(target = play_tts, args =(name, line, tts_id, ))
 			t.start()

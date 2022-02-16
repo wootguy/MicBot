@@ -66,7 +66,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 		if (args[0] == ".micbot" || args[0] == ".mhelp") {
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "MicBot commands sent to your console.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "MicBot reads messages aloud and can play audio from youtube links.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    !<message> = Hide your message from the chat.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    /<message> = Hide your message from the chat.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mpitch <1-200>   = set text-to-speech pitch.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlang <language> = set text-to-speech language.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlangs           = list valid languages.\n");			
@@ -200,7 +200,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			return true;
 		}
 		
-		if (args[0][0] == "!") {
+		if (args[0][0] == "/") {
 			string msg = "[MicBot] " + plr.pev.netname + ": " + chatText + "\n";
 			g_PlayerFuncs.ClientPrintAll(HUD_PRINTCONSOLE, msg);
 			server_print(plr, msg);
