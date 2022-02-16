@@ -4,7 +4,7 @@ MicBot uses Google Translate to speak everyone's chat messages. It can also play
 Say `.mhelp` for usage on servers which have the MicBot plugin installed.
 ```
 MicBot reads messages aloud and can play audio from youtube links.
-    !<message> = Hide your message from the chat.
+    /<message> = Hide your message from the chat.
     .mpitch <1-200>   = set text-to-speech pitch.
     .mlang <language> = set text-to-speech language.
     .mlangs           = list valid languages.
