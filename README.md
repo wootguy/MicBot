@@ -1,7 +1,7 @@
 # MicBot
-Goldsource mic spammer. It uses Google Translate to speak chat messages, and youtube-dl to play audio from youtube links sent via chat. You'll need to use a spare PC or start a VM for the sole purpose of running this bot. 
+MicBot uses Google Translate to speak everyone's chat messages. It can also play audio from youtube links sent via chat. You'll need to setup a spare PC or VM for the sole purpose of running this bot. The server you join must also have the MicBot plugin installed (this probably won't be a requirement in the future).
 
-Say `.mhelp` for usage on servers which have the MicBot plugin installed. It's possible to make this bot not require a server plugin, but the plugin made this much faster to make.
+Say `.mhelp` for usage on servers which have the MicBot plugin installed.
 ```
 MicBot reads messages aloud and can play audio from youtube links.
     !<message> = Hide your message from the chat.
@@ -36,14 +36,20 @@ MicBot reads messages aloud and can play audio from youtube links.
     * sudo apt install pavucontrol
     * pactl load-module module-loopback latency_msec=1
     * Set sound card profile to "Off" in Configuration tab of the volume settings (this will disable speakers but I wanted that anyway)
+
+## Final installation steps
+1. Edit `backend_youtube_dl.py` in the pafy python library (default windows path: `Python3x/Lib/site-packages/pafy/`):
+    * comment out the lines that have `like_count` and `dislike_count`. As of this writing, the current version of pafy will fail to fetch youtube links because of the removal of likes/dislikes from YouTube.
+    * **[Optional]** If you get "Sign in to verify your age" errors for some videos, then also replace `youtube_dl import` with `import yt_dlp as youtube_dl`. This may result in other errors or videos not playing though, so maybe try without doing this first.
+* **[Optional]** The bot will speak chat sounds by default. If you don't want that, create a file called `chatsounds.txt` next to the script. Each line should contain a single word which the bot will not speak by itself.
+videos will create visible media players on the bot's PC.
     
 ## Usage:
 1. Add `-condebug` to the launch options of Sven Co-op. Then, start the game.
 1. Type in console: `volume 0; mp3volume 0; bind F8 "+voicerecord;-voicerecord;+voicerecord"`
 1. Join a server which has the MicBot plugin installed.
-1. Say .mbot to register yourself as a bot.
-1. Start the client.py script
+1. Say `.mbot` to register yourself as a bot.
+1. Start the `client.py` script
 1. Keep the game in focus and without the menu/console showing. The script will continue pressing F8 to keep the mic enabled across level changes.
 
-### Optional stuff:
-The bot will speak chat sounds by default. If you don't want that, create a file called `chatsounds.txt` next to the script. Each line should contain a single word which the bot will not speak by itself.
+
