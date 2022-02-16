@@ -6,7 +6,7 @@
 # persist settings in case of crash
 # linux mic stops working
 
-import time, os, sys, queue, signal
+import time, os, sys, queue, random
 from threading import Thread
 import pafy
 import vlc
@@ -16,70 +16,40 @@ from pyglet.media import Player
 from pydub import AudioSegment, effects
 
 if os.name == 'nt':
-	import win32api, win32gui, win32con, ctypes, win32process, psutil
-	import ctypes, time
-	# Bunch of stuff so that the script can send keystrokes to game #
+	from pynput.keyboard import Key, Controller
 
-	SendInput = ctypes.windll.user32.SendInput
-
-	# C struct redefinitions 
-	PUL = ctypes.POINTER(ctypes.c_ulong)
-	class KeyBdInput(ctypes.Structure):
-		_fields_ = [("wVk", ctypes.c_ushort),
-					("wScan", ctypes.c_ushort),
-					("dwFlags", ctypes.c_ulong),
-					("time", ctypes.c_ulong),
-					("dwExtraInfo", PUL)]
-
-	class HardwareInput(ctypes.Structure):
-		_fields_ = [("uMsg", ctypes.c_ulong),
-					("wParamL", ctypes.c_short),
-					("wParamH", ctypes.c_ushort)]
-
-	class MouseInput(ctypes.Structure):
-		_fields_ = [("dx", ctypes.c_long),
-					("dy", ctypes.c_long),
-					("mouseData", ctypes.c_ulong),
-					("dwFlags", ctypes.c_ulong),
-					("time",ctypes.c_ulong),
-					("dwExtraInfo", PUL)]
-
-	class Input_I(ctypes.Union):
-		_fields_ = [("ki", KeyBdInput),
-					 ("mi", MouseInput),
-					 ("hi", HardwareInput)]
-
-	class Input(ctypes.Structure):
-		_fields_ = [("type", ctypes.c_ulong),
-					("ii", Input_I)]
-
-	# Actuals Functions
-	def PressKey(hexKeyCode):
-		extra = ctypes.c_ulong(0)
-		ii_ = Input_I()
-		ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008, 0, ctypes.pointer(extra) )
-		x = Input( ctypes.c_ulong(1), ii_ )
-		ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
-
-	def ReleaseKey(hexKeyCode):
-		extra = ctypes.c_ulong(0)
-		ii_ = Input_I()
-		ii_.ki = KeyBdInput( 0, hexKeyCode, 0x0008 | 0x0002, 0, ctypes.pointer(extra) )
-		x = Input( ctypes.c_ulong(1), ii_ )
-		ctypes.windll.user32.SendInput(1, ctypes.pointer(x), ctypes.sizeof(x))
+	keyboard = Controller()
 
 	# http://www.flint.jp/misc/?q=dik&lang=en
 	def PressButton(code):
-		global sven_hwnd
-
-		PressKey(code)
-		time.sleep(.05)
-		ReleaseKey(code)
+		keyboard.press(code)
+		keyboard.release(code)
+		
+	def PressButtons():
+		PressButton(Key.f8)
+		PressButton(Key.space)
 		
 	def chat_sven(text):
-		pass
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		
+		PressButton('y')
+		time.sleep(0.1)
+		for c in text:
+			PressButton(c)
+		time.sleep(0.1)
+		PressButton(Key.enter)
+		
+		lock_queue.get()
 else:
 	def PressButton(code):
+		pass
+		
+	def PressButtons():
 		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
 		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) F8')
 		
@@ -118,6 +88,13 @@ g_accents = {}
 g_pitches = {}
 g_players = {}
 lock_queue = queue.Queue()
+log_queue = queue.Queue()
+command_prefix = '~'
+dance_emotes = [
+	'.e 180 loop 2',
+	'.e 181 iloop 1',
+	'.e 187 iloop 2'
+]
 
 
 def load_all_chatsounds():
@@ -163,7 +140,11 @@ def playtube_async(url, offset, player):
 		
 		players.append(player)
 		print("Play offset %d: " % offset + video.title)
-		#chat_sven("/me played: " + video.title)
+		chat_sven("/me - " + video.title)
+		
+		rand_idx = random.randrange(0, len(dance_emotes))
+		print("EMOTE: " + dance_emotes[rand_idx])
+		chat_sven(dance_emotes[rand_idx])
 	except Exception as e:
 		print(e)
 		
@@ -245,24 +226,61 @@ print("Following log file: " + filename)
 tts_enabled = True
 
 # press mic record key over and over
-def heartbeat_thread():
+def button_loop():
 	global lock_queue
+	global players
 	
 	while True:
 		if lock_queue.empty():
-			PressButton(0x3E) # F4
-			PressButton(0x39) # space
-			time.sleep(0.5)
+			if os.name == 'nt':
+				PressButtons()
+				time.sleep(0.5)
+			else:
+				PressButtons()
+				time.sleep(0.5)
 
-t = Thread(target = heartbeat_thread, args =( ))
+def message_loop():
+	global log_queue
+	
+	logfile = open(filename, encoding='utf8', errors='ignore')
+	loglines = follow(logfile)   
+	 # iterate over the generator
+	for line in loglines:
+		log_queue.put(line)
+		print(line)
+
+t = Thread(target = button_loop, args =( ))
 t.daemon = True
 t.start()
 
-logfile = open(filename, encoding='utf8', errors='ignore')
-loglines = follow(logfile)   
- # iterate over the generator
-for line in loglines:
-	print(line)
+t = Thread(target = message_loop, args =( ))
+t.daemon = True
+t.start()
+
+while True:
+	wasplaying = len(players) > 0
+				
+	for idx, player in enumerate(players):
+		if not player.is_playing() and not player.will_play():
+			players.pop(idx)
+			break
+			
+	if len(players) == 0 and wasplaying:
+		chat_sven('.e off')
+		
+	if len(players) > 0:
+		PressButton(Key.right)
+	
+	line = None
+	try:
+		line = log_queue.get(True, 0.05)
+	except Exception as e:
+		pass
+	
+	if not line:
+		continue
+	
+	print(line.strip())
 	
 	if line.startswith('MicBot\\'):
 		line = line[len('MicBot\\'):]
@@ -270,8 +288,8 @@ for line in loglines:
 		line = line[line.find("\\")+1:]
 		print(name + ": " + line.strip())
 		
-		if line.startswith('https://www.youtube.com') or line.startswith('/https://www.youtube.com') or line.startswith('https://youtu.be') or line.startswith('/https://youtu.be'):
-			if line.startswith("/"):
+		if line.startswith('https://www.youtube.com') or line.startswith(command_prefix + 'https://www.youtube.com') or line.startswith('https://youtu.be') or line.startswith(command_prefix + 'https://youtu.be'):
+			if line.startswith(command_prefix):
 				line = line[1:]
 				
 			args = line.split()
@@ -301,6 +319,7 @@ for line in loglines:
 				for player in players:
 					player.stop()
 				players = []
+				chat_sven(".e off")
 			elif arg == "last":
 				for player in players[1:]:
 					player.stop()
@@ -323,16 +342,6 @@ for line in loglines:
 			t.start()
 			tts_id += 1
 			continue
-		
-		'''
-		if line.startswith('/'):
-			cmd = line[1:line.find(' ')]
-			
-			check_path = os.path.join(csound_path, cmd + '.wav')
-			if os.path.exists(check_path):
-				playsound_async(name, check_path)
-				continue
-		'''
 		
 		if tts_enabled:			
 			if line.strip().lower() in g_chatsounds:
@@ -435,7 +444,7 @@ for line in loglines:
 				
 				continue
 			
-			if line.startswith('/'):
+			if line.startswith(command_prefix):
 				line = line[1:]
 			
 			t = Thread(target = play_tts, args =(name, line, tts_id, ))

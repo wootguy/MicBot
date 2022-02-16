@@ -33,10 +33,10 @@ void PluginInit()
 	
 	g_Hooks.RegisterHook( Hooks::Player::ClientSay, @ClientSay );
 	
-	g_Scheduler.SetInterval("kill_bots_in_survival", 3.0f, -1);
+	g_Scheduler.SetInterval("bot_loop", 3.0f, -1);
 }
 
-void kill_bots_in_survival() {
+void bot_loop() {
 	if (!g_SurvivalMode.IsActive()) {
 		return;
 	}
@@ -66,7 +66,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 		if (args[0] == ".micbot" || args[0] == ".mhelp") {
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "MicBot commands sent to your console.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "MicBot reads messages aloud and can play audio from youtube links.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    /<message> = Hide your message from the chat.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    ~<message>        = Hide your message from the chat.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mpitch <1-200>   = set text-to-speech pitch.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlang <language> = set text-to-speech language.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlangs           = list valid languages.\n");			
@@ -102,6 +102,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  ir = English (Ireland)\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  afs = English (South Africa)\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  ek = English (United Kingdom)\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  en = English (United States)\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  eo = Esperanto\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  et = Estonian\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "  tl = Filipino\n");
@@ -200,7 +201,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			return true;
 		}
 		
-		if (args[0][0] == "/") {
+		if (args[0][0] == "~") {
 			string msg = "[MicBot] " + plr.pev.netname + ": " + chatText + "\n";
 			g_PlayerFuncs.ClientPrintAll(HUD_PRINTCONSOLE, msg);
 			server_print(plr, msg);

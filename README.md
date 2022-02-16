@@ -21,8 +21,8 @@ MicBot reads messages aloud and can play audio from youtube links.
 
 ## Windows installation:
 1. Install Python 3
-1. `pip install pafy gtts python-vlc pyglet pywin32 psutil pydub youtube_dl yt-dlp`
-    * If `yt-dlp` fails to install. Then try this command:
+1. `pip install pafy gtts python-vlc pyglet pynput pydub youtube_dl yt-dlp pynput`
+    * If `yt-dlp` fails to install, then try this command:
     `pip install --no-deps -U yt-dlp`
     * You might need to install some .NET framework or visual studio stuff. Any error messages you see should be google-able.
 1. Install the appropriate version of VLC (64-bit VLC if you got 64-bit python. 32-bit VLC if 32-bit python.)
@@ -31,7 +31,7 @@ MicBot reads messages aloud and can play audio from youtube links.
 
 ## Linux installation:
 1. `sudo apt install xdotool python3-gst-1.0 python3 python3-pip ffmpeg vlc`
-1. `pip3 install pafy gtts python-vlc pyglet pywin32 psutil pydub youtube_dl yt-dlp`
+1. `pip3 install pafy gtts python-vlc pyglet pydub youtube_dl yt-dlp`
 1. Redirect sven to record from your speaker output. I had to do this for a Lubuntu 18.04 x64 VM:
     * sudo apt install pavucontrol
     * pactl load-module module-loopback latency_msec=1
