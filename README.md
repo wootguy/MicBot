@@ -38,9 +38,12 @@ MicBot reads messages aloud and can play audio from youtube links.
     * Set sound card profile to "Off" in Configuration tab of the volume settings (this will disable speakers but I wanted that anyway)
     
 ## Usage:
-1. Start Sven Co-op
+1. Add `-condebug` to the launch options of Sven Co-op. Then, start the game.
 1. Type in console: `volume 0; mp3volume 0; bind F8 "+voicerecord;-voicerecord;+voicerecord"`
 1. Join a server which has the MicBot plugin installed.
 1. Say .mbot to register yourself as a bot.
 1. Start the client.py script
 1. Keep the game in focus and without the menu/console showing. The script will continue pressing F8 to keep the mic enabled across level changes.
+
+### Optional stuff:
+The bot will speak chat sounds by default. If you don't want that, create a file called `chatsounds.txt` next to the script. Each line should contain a single word which the bot will not speak by itself.
