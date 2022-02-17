@@ -40,6 +40,7 @@ if os.name == 'nt':
 		PressButton('y')
 		time.sleep(0.1)
 		for c in text:
+			time.sleep(0.01)
 			PressButton(c)
 		time.sleep(0.1)
 		PressButton(Key.enter)
@@ -85,7 +86,6 @@ sound_threads = []
 g_chatsounds = []
 tts_id = 0
 g_accents = {}
-g_pitches = {}
 g_players = {}
 lock_queue = queue.Queue()
 log_queue = queue.Queue()
@@ -95,6 +95,77 @@ dance_emotes = [
 	'.e 181 iloop 1',
 	'.e 187 iloop 2'
 ]
+g_valid_langs = {
+	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
+	'afs': {'tld': 'co.za', 'code': 'en', 'name': 'South African'},
+	'ar': {'tld': 'com', 'code': 'ar', 'name': 'arabic'},
+	'au': {'tld': 'com.au', 'code': 'en', 'name': 'Austrailian'},
+	'bg': {'tld': 'com', 'code': 'bg', 'name': 'bulgarian'},
+	'bn': {'tld': 'com', 'code': 'bn', 'name': 'Bengali'},
+	'br': {'tld': 'com.br', 'code': 'pt', 'name': 'brazilian'},
+	'bs': {'tld': 'com', 'code': 'bs', 'name': 'Bosnian'},
+	'ca': {'tld': 'ca', 'code': 'en', 'name': 'Canadian'},
+	'cn': {'tld': 'com', 'code': 'zh-CN', 'name': 'chinese'},
+	'cs': {'tld': 'com', 'code': 'cs', 'name': 'Czech'},
+	'ct': {'tld': 'com', 'code': 'ca', 'name': 'Catalan'},
+	'cy': {'tld': 'com', 'code': 'cy', 'name': 'Welsh'},
+	'da': {'tld': 'com', 'code': 'da', 'name': 'Danish'},
+	'de': {'tld': 'com', 'code': 'de', 'name': 'German'},
+	'el': {'tld': 'com', 'code': 'el', 'name': 'Greek'},
+	'en': {'tld': 'com', 'code': 'en', 'name': 'american'},
+	'eo': {'tld': 'com', 'code': 'eo', 'name': 'Esperanto'},
+	'es': {'tld': 'es', 'code': 'es', 'name': 'spanish'},
+	'et': {'tld': 'com', 'code': 'et', 'name': 'Estonian'},
+	'fc': {'tld': 'ca', 'code': 'fr', 'name': 'french canadian'},
+	'fi': {'tld': 'com', 'code': 'fi', 'name': 'Finnish'},
+	'fr': {'tld': 'fr', 'code': 'fr', 'name': 'french'},
+	'gu': {'tld': 'com', 'code': 'gu', 'name': 'Gujarati'},
+	'hi': {'tld': 'com', 'code': 'hi', 'name': 'Hindi'},
+	'hr': {'tld': 'com', 'code': 'hr', 'name': 'Croatian'},
+	'hu': {'tld': 'com', 'code': 'hu', 'name': 'Hungarian'},
+	'hy': {'tld': 'com', 'code': 'hy', 'name': 'Armenian'},
+	'is': {'tld': 'com', 'code': 'is', 'name': 'Icelandic'},
+	'id': {'tld': 'com', 'code': 'id', 'name': 'Indonesian'},
+	'in': {'tld': 'co.in', 'code': 'en', 'name': 'Indian'},
+	'ir': {'tld': 'ie', 'code': 'en', 'name': 'Irish'},
+	'it': {'tld': 'com', 'code': 'it', 'name': 'Italian'},
+	'ja': {'tld': 'com', 'code': 'ja', 'name': 'Japanese'},
+	'jw': {'tld': 'com', 'code': 'jw', 'name': 'Javanese'},
+	'km': {'tld': 'com', 'code': 'km', 'name': 'Khmer'},
+	'kn': {'tld': 'com', 'code': 'kn', 'name': 'Kannada'},
+	'ko': {'tld': 'com', 'code': 'ko', 'name': 'Korean'},
+	'la': {'tld': 'com', 'code': 'la', 'name': 'Latin'},
+	'lv': {'tld': 'com', 'code': 'lv', 'name': 'Latvian'},
+	'ma': {'tld': 'com', 'code': 'es', 'name': 'Mexican American'},
+	'mk': {'tld': 'com', 'code': 'mk', 'name': 'Macedonian'},
+	'mr': {'tld': 'com', 'code': 'mr', 'name': 'Marathi'},
+	'mx': {'tld': 'com.mx', 'code': 'es', 'name': 'Mexican'},
+	'my': {'tld': 'com', 'code': 'my', 'name': 'Myanmar (Burmese)'},
+	'ne': {'tld': 'com', 'code': 'ne', 'name': 'Nepali'},
+	'nl': {'tld': 'com', 'code': 'nl', 'name': 'Dutch'},
+	'no': {'tld': 'com', 'code': 'no', 'name': 'Norwegian'},
+	'pl': {'tld': 'com', 'code': 'pl', 'name': 'Polish'},
+	'pt': {'tld': 'pt', 'code': 'pt', 'name': 'portuguese'},
+	'ro': {'tld': 'com', 'code': 'ro', 'name': 'Romanian'},
+	'ru': {'tld': 'com', 'code': 'ru', 'name': 'Russian'},
+	'si': {'tld': 'com', 'code': 'si', 'name': 'Sinhala'},
+	'sk': {'tld': 'com', 'code': 'sk', 'name': 'Slovak'},
+	'sq': {'tld': 'com', 'code': 'sq', 'name': 'Albanian'},
+	'sr': {'tld': 'com', 'code': 'sr', 'name': 'Serbian'},
+	'su': {'tld': 'com', 'code': 'su', 'name': 'Sundanese'},
+	'sv': {'tld': 'com', 'code': 'sv', 'name': 'Swedish'},
+	'sw': {'tld': 'com', 'code': 'sw', 'name': 'Swahili'},
+	'ta': {'tld': 'com', 'code': 'ta', 'name': 'Tamil'},
+	'te': {'tld': 'com', 'code': 'te', 'name': 'Telugu'},
+	'th': {'tld': 'com', 'code': 'th', 'name': 'Thai'},
+	'tl': {'tld': 'com', 'code': 'tl', 'name': 'Filipino'},
+	'tr': {'tld': 'com', 'code': 'tr', 'name': 'Turkish'},
+	'tw': {'tld': 'com', 'code': 'zh-TW', 'name': 'taiwanese'},
+	'ek': {'tld': 'co.uk', 'code': 'en', 'name': 'british'},
+	'uk': {'tld': 'com', 'code': 'uk', 'name': 'Ukrainian'},
+	'ur': {'tld': 'com', 'code': 'ur', 'name': 'Urdu'},
+	'vi': {'tld': 'com', 'code': 'vi', 'name': 'Vietnamese'}
+}
 
 
 def load_all_chatsounds():
@@ -102,7 +173,7 @@ def load_all_chatsounds():
 	for line in file1.readlines():
 		g_chatsounds.append(line.split()[0])
 
-def playsound_async(speaker, sound):	
+def playsound_async(speaker, sound, pitch):
 	if speaker in g_players:
 		if g_players[speaker].playing:
 			g_players[speaker].pause()
@@ -111,18 +182,33 @@ def playsound_async(speaker, sound):
 	player = g_players[speaker] = Player()
 	
 	source = pyglet.media.load(sound, streaming=False)
-	player.pitch = (g_pitches[speaker] / 100.0) if speaker in g_pitches else 1
+	player.pitch = pitch
 	player.queue(source)
 	player.play()
 	sound_threads.append(player)
+
+def format_time(seconds):
+	hours = int(seconds / (60*60))
 	
+	if hours > 0:
+		remainder = int(seconds - hours*60*60)
+		return "%dh %dm" % (hours, int(remainder / 60))
+	else:
+		minutes = int(seconds / 60)
+		if minutes > 0:
+			return "%dm %ds" % (minutes, int(seconds % 60))
+		else:
+			return "%ds" % int(seconds)
+
 def playtube_async(url, offset, player):
 	global tts_id
+	global players
 	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
 	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
-	try:
-		global players
+	
+	# https://www.olivieraubert.net/vlc/python-ctypes/doc/ (Ctrl+f MediaPlayer)
+	try:		
 		print("Fetch best audio " + url)
 		video = pafy.new(url)
 		best = video.getbestaudio()
@@ -133,41 +219,35 @@ def playtube_async(url, offset, player):
 		Instance = vlc.Instance()
 		player = Instance.media_player_new()
 		media = Instance.media_new(playurl)
-		media.get_mrl()
 		media.add_option('start-time=%d' % offset)
 		player.set_media(media)
-		player.play()
+		player.play()		
 		
 		players.append(player)
 		print("Play offset %d: " % offset + video.title)
-		chat_sven("/me - " + video.title)
+		chat_sven("/me - " + video.title + "  [" + format_time(int(video.length)) + "]")
 		
 		rand_idx = random.randrange(0, len(dance_emotes))
-		print("EMOTE: " + dance_emotes[rand_idx])
 		chat_sven(dance_emotes[rand_idx])
 	except Exception as e:
 		print(e)
 		
 		chat_sven("/me failed to play a video from " + player + ".")
-		t = Thread(target = play_tts, args =('', str(e), tts_id, ))
+		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, ))
 		t.daemon = True
 		t.start()
 		tts_id += 1
 
-def play_tts(speaker, text, id):	
+def play_tts(speaker, text, id, lang, pitch):	
 	# Language in which you want to convert
-	language = 'en'
-	tld = 'com'
-	
-	if speaker in g_accents:
-		language = g_accents[speaker]['code']
-		tld = g_accents[speaker]['tld']
+	language = g_valid_langs[lang]['code']
+	tld = g_valid_langs[lang]['tld']
 	  
 	# Passing the text and language to the engine, 
 	# here we have marked slow=False. Which tells 
 	# the module that the converted audio should 
 	# have a high speed
-	print("Translating %d" % id)
+	#print("Translating %d" % id)
 	myobj = gTTS(text=text, tld=tld, lang=language, slow=False)
 	  
 	# Saving the converted audio in a mp3 file named
@@ -177,9 +257,8 @@ def play_tts(speaker, text, id):
 	
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
-	totalExclaim = sum(1 for c in text if c == '!')
 	
-	print("Normalize %d" % (id))
+	#print("Normalize %d" % (id))
 	output = 'tts/tts%d.wav' % id
 	
 	rawsound = AudioSegment.from_file(fname, "mp3")  
@@ -187,12 +266,14 @@ def play_tts(speaker, text, id):
 	
 	if totalCaps > totalLower:
 		normalizedsound = normalizedsound + 1000
+	else:
+		normalizedsound = normalizedsound + 5
 	
 	normalizedsound.export(output, format="wav")
 	 
 	print("Play %d" % id)
 	# Playing the converted file
-	playsound_async(speaker, output)
+	playsound_async(speaker, output, pitch)
 
 	os.remove(fname)
 	os.remove(output)
@@ -247,7 +328,6 @@ def message_loop():
 	 # iterate over the generator
 	for line in loglines:
 		log_queue.put(line)
-		print(line)
 
 t = Thread(target = button_loop, args =( ))
 t.daemon = True
@@ -280,15 +360,23 @@ while True:
 	if not line:
 		continue
 	
-	print(line.strip())
-	
 	if line.startswith('MicBot\\'):
+		print(line.strip())
+		
 		line = line[len('MicBot\\'):]
 		name = line[:line.find("\\")]
 		line = line[line.find("\\")+1:]
-		print(name + ": " + line.strip())
+		lang = line[:line.find("\\")]
+		line = line[line.find("\\")+1:]
+		pitch = float(line[:line.find("\\")]) / 100
+		line = line[line.find("\\")+1:]
 		
-		if line.startswith('https://www.youtube.com') or line.startswith(command_prefix + 'https://www.youtube.com') or line.startswith('https://youtu.be') or line.startswith(command_prefix + 'https://youtu.be'):
+		if line.startswith(command_prefix):
+			line = line[1:]
+
+		#print(name + ": " + line.strip())
+		
+		if line.startswith('https://www.youtube.com') or line.startswith('https://youtu.be'):
 			if line.startswith(command_prefix):
 				line = line[1:]
 				
@@ -337,7 +425,7 @@ while True:
 				sound_threads = []
 			
 		
-			t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, ))
+			t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, ))
 			t.daemon = True
 			t.start()
 			tts_id += 1
@@ -347,107 +435,7 @@ while True:
 			if line.strip().lower() in g_chatsounds:
 				continue
 			
-			if line.startswith('.mpitch') and len(line.split()) > 1:
-				g_pitches[name] = int(line.split()[1])
-				if name in g_players:
-					g_players[name].pitch = g_pitches[name] / 100.0
-				continue
-			
-			if line.startswith('.mlang '):
-				lang = line[6:].strip().lower()
-				
-				valid_langs = {
-					'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
-					'afs': {'tld': 'co.za', 'code': 'en', 'name': 'South African'},
-					'ar': {'tld': 'com', 'code': 'ar', 'name': 'arabic'},
-					'au': {'tld': 'com.au', 'code': 'en', 'name': 'Austrailian'},
-					'bg': {'tld': 'com', 'code': 'bg', 'name': 'bulgarian'},
-					'bn': {'tld': 'com', 'code': 'bn', 'name': 'Bengali'},
-					'br': {'tld': 'com.br', 'code': 'pt', 'name': 'brazilian'},
-					'bs': {'tld': 'com', 'code': 'bs', 'name': 'Bosnian'},
-					'ca': {'tld': 'ca', 'code': 'en', 'name': 'Canadian'},
-					'cn': {'tld': 'com', 'code': 'zh-CN', 'name': 'chinese'},
-					'cs': {'tld': 'com', 'code': 'cs', 'name': 'Czech'},
-					'ct': {'tld': 'com', 'code': 'ca', 'name': 'Catalan'},
-					'cy': {'tld': 'com', 'code': 'cy', 'name': 'Welsh'},
-					'da': {'tld': 'com', 'code': 'da', 'name': 'Danish'},
-					'de': {'tld': 'com', 'code': 'de', 'name': 'German'},
-					'el': {'tld': 'com', 'code': 'el', 'name': 'Greek'},
-					'en': {'tld': 'com', 'code': 'en', 'name': 'american'},
-					'eo': {'tld': 'com', 'code': 'eo', 'name': 'Esperanto'},
-					'es': {'tld': 'es', 'code': 'es', 'name': 'spanish'},
-					'et': {'tld': 'com', 'code': 'et', 'name': 'Estonian'},
-					'fc': {'tld': 'ca', 'code': 'fr', 'name': 'french canadian'},
-					'fi': {'tld': 'com', 'code': 'fi', 'name': 'Finnish'},
-					'fr': {'tld': 'fr', 'code': 'fr', 'name': 'french'},
-					'gu': {'tld': 'com', 'code': 'gu', 'name': 'Gujarati'},
-					'hi': {'tld': 'com', 'code': 'hi', 'name': 'Hindi'},
-					'hr': {'tld': 'com', 'code': 'hr', 'name': 'Croatian'},
-					'hu': {'tld': 'com', 'code': 'hu', 'name': 'Hungarian'},
-					'hy': {'tld': 'com', 'code': 'hy', 'name': 'Armenian'},
-					'is': {'tld': 'com', 'code': 'is', 'name': 'Icelandic'},
-					'id': {'tld': 'com', 'code': 'id', 'name': 'Indonesian'},
-					'in': {'tld': 'co.in', 'code': 'en', 'name': 'Indian'},
-					'ir': {'tld': 'ie', 'code': 'en', 'name': 'Irish'},
-					'it': {'tld': 'com', 'code': 'it', 'name': 'Italian'},
-					'ja': {'tld': 'com', 'code': 'ja', 'name': 'Japanese'},
-					'jw': {'tld': 'com', 'code': 'jw', 'name': 'Javanese'},
-					'km': {'tld': 'com', 'code': 'km', 'name': 'Khmer'},
-					'kn': {'tld': 'com', 'code': 'kn', 'name': 'Kannada'},
-					'ko': {'tld': 'com', 'code': 'ko', 'name': 'Korean'},
-					'la': {'tld': 'com', 'code': 'la', 'name': 'Latin'},
-					'lv': {'tld': 'com', 'code': 'lv', 'name': 'Latvian'},
-					'ma': {'tld': 'com', 'code': 'es', 'name': 'Mexican American'},
-					'mk': {'tld': 'com', 'code': 'mk', 'name': 'Macedonian'},
-					'mr': {'tld': 'com', 'code': 'mr', 'name': 'Marathi'},
-					'mx': {'tld': 'com.mx', 'code': 'es', 'name': 'Mexican'},
-					'my': {'tld': 'com', 'code': 'my', 'name': 'Myanmar (Burmese)'},
-					'ne': {'tld': 'com', 'code': 'ne', 'name': 'Nepali'},
-					'nl': {'tld': 'com', 'code': 'nl', 'name': 'Dutch'},
-					'no': {'tld': 'com', 'code': 'no', 'name': 'Norwegian'},
-					'pl': {'tld': 'com', 'code': 'pl', 'name': 'Polish'},
-					'pt': {'tld': 'pt', 'code': 'pt', 'name': 'portuguese'},
-					'ro': {'tld': 'com', 'code': 'ro', 'name': 'Romanian'},
-					'ru': {'tld': 'com', 'code': 'ru', 'name': 'Russian'},
-					'si': {'tld': 'com', 'code': 'si', 'name': 'Sinhala'},
-					'sk': {'tld': 'com', 'code': 'sk', 'name': 'Slovak'},
-					'sq': {'tld': 'com', 'code': 'sq', 'name': 'Albanian'},
-					'sr': {'tld': 'com', 'code': 'sr', 'name': 'Serbian'},
-					'su': {'tld': 'com', 'code': 'su', 'name': 'Sundanese'},
-					'sv': {'tld': 'com', 'code': 'sv', 'name': 'Swedish'},
-					'sw': {'tld': 'com', 'code': 'sw', 'name': 'Swahili'},
-					'ta': {'tld': 'com', 'code': 'ta', 'name': 'Tamil'},
-					'te': {'tld': 'com', 'code': 'te', 'name': 'Telugu'},
-					'th': {'tld': 'com', 'code': 'th', 'name': 'Thai'},
-					'tl': {'tld': 'com', 'code': 'tl', 'name': 'Filipino'},
-					'tr': {'tld': 'com', 'code': 'tr', 'name': 'Turkish'},
-					'tw': {'tld': 'com', 'code': 'zh-TW', 'name': 'taiwanese'},
-					'ek': {'tld': 'co.uk', 'code': 'en', 'name': 'british'},
-					'uk': {'tld': 'com', 'code': 'uk', 'name': 'Ukrainian'},
-					'ur': {'tld': 'com', 'code': 'ur', 'name': 'Urdu'},
-					'vi': {'tld': 'com', 'code': 'vi', 'name': 'Vietnamese'}
-				}
-				
-				if lang in valid_langs:
-					g_accents[name] = valid_langs[lang]
-					msg = valid_langs[lang]['name'] + " accent, activated"
-					t = Thread(target = play_tts, args =(name, msg, tts_id, ))
-					t.daemon = True
-					t.start()
-					tts_id += 1
-				else:
-					msg = "invalid accent " + lang
-					t = Thread(target = play_tts, args =(name, msg, tts_id, ))
-					t.daemon = True
-					t.start()
-					tts_id += 1
-				
-				continue
-			
-			if line.startswith(command_prefix):
-				line = line[1:]
-			
-			t = Thread(target = play_tts, args =(name, line, tts_id, ))
+			t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, ))
 			t.start()
 			tts_id += 1
 		
