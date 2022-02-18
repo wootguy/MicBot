@@ -6,94 +6,55 @@
 # persist settings in case of crash
 # linux mic stops working
 
-import time, os, sys, queue, random
+import time, os, sys, queue, random, pafy, vlc, pyglet, datetime
 from threading import Thread
-import pafy
-import vlc
 from gtts import gTTS
-import pyglet
 from pyglet.media import Player
 from pydub import AudioSegment, effects
 
-if os.name == 'nt':
-	from pynput.keyboard import Key, Controller
-
-	keyboard = Controller()
-
-	# http://www.flint.jp/misc/?q=dik&lang=en
-	def PressButton(code):
-		keyboard.press(code)
-		keyboard.release(code)
-		
-	def PressButtons():
-		PressButton(Key.f8)
-		PressButton(Key.space)
-		
-	def chat_sven(text):
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		
-		PressButton('y')
-		time.sleep(0.1)
-		for c in text:
-			time.sleep(0.01)
-			PressButton(c)
-		time.sleep(0.1)
-		PressButton(Key.enter)
-		
-		lock_queue.get()
-else:
-	def PressButton(code):
-		pass
-		
-	def PressButtons():
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) F8')
-		
-	def chat_sven(text):
-		global lock_queue
-		
-		lock_queue.put(1)
-		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) y')
-		time.sleep(0.1)
-		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		lock_queue.get()
-
-def follow(thefile):
-	'''generator function that yields new lines in a file
-	'''
-	# seek the end of the file
-	thefile.seek(0, os.SEEK_END)
-	
-	# start infinite loop
-	while True:
-		# read last line of file
-		line = thefile.readline()        # sleep if file hasn't been updated
-		if not line:
-			time.sleep(0.1)
-			continue
-
-		yield line
-
-players = []
-sound_threads = []
+sven_root = '../../../..'
+csound_path = os.path.join(sven_root, 'svencoop_downloads/sound/twlz')
+tts_enabled = True
+g_media_players = []
 g_chatsounds = []
 tts_id = 0
-g_accents = {}
-g_players = {}
+g_tts_players = {}
 lock_queue = queue.Queue()
 log_queue = queue.Queue()
 command_prefix = '~'
-dance_emotes = [
+dance_emotes = [ # cyber_kizuna_dance
 	'.e 180 loop 2',
 	'.e 181 iloop 1',
 	'.e 187 iloop 2'
+	'.e chain 2.4 loop 191 192'
+	'.e 194 loop 3.5',
+	'.e 195 loop 3.5',
+	'.e 196 loop 2.2',
+	'.e 197 loop 2.4',
+	'.e chain 2 loop 198 199',
+	'.e 200 loop 2',
+	'.e 201 loop 2.4',
+	'.e 202 loop 1.7',
+	'.e chain 1.8 loop 203 204_1.4',
+	'.e chain 2.4 loop 205 206 207 208_3.45',
+	'.e 209 loop 1.47',
+	'.e 210 loop 1.75',
+	'.e 211 loop 1.65',
+	'.e 212 loop 5',
+	'.e 213 loop 3.4',
+	'.e 214 loop 6',
+	'.e 215 loop 1.7',
+	'.e 216 loop 1.6',
+	'.e 217 loop 3.8',
+	'.e 218 loop 8',
+	'.e 219 loop 1.6',
+	'.e chain 1.6 loop 220 221 222_1.2',
+	'.e chain 1.6 loop 223 224 225 226_4.35',
+	'.e chain 1.7 loop 227 228 229_1.1',
+	'.e chain 1.85 loop 230 231 232_1.5',
+	'.e chain 1.85 loop 233 234 235 236_1.3',
+	'.e chain 1.85 loop 237 238 239 240_7.2',
+	'.e chain 1.7 loop 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255'
 ]
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
@@ -168,24 +129,166 @@ g_valid_langs = {
 }
 
 
+if os.name == 'nt':
+	from pynput.keyboard import Key, Controller
+
+	keyboard = Controller()
+
+	# http://www.flint.jp/misc/?q=dik&lang=en
+	def PressButton(code):
+		keyboard.press(code)
+		keyboard.release(code)
+		
+	def PressButtons():
+		PressButton(Key.f8)
+	
+	def chat_sven(text):
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		
+		PressButton('y')
+		time.sleep(0.1)
+		for c in text:
+			time.sleep(0.01)
+			PressButton(c)
+		time.sleep(0.1)
+		PressButton(Key.enter)
+		
+		lock_queue.get()	
+
+	def console_cmd_sven(text):
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		
+		PressButton('`')
+		time.sleep(0.1)
+		for c in text:
+			time.sleep(0.01)
+			PressButton(c)
+		time.sleep(0.1)
+		PressButton(Key.enter)
+		time.sleep(0.1)
+		PressButton('`')
+		
+		lock_queue.get()
+		
+	def close_console():
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+
+		for c in 'toggleconsole':
+			time.sleep(0.01)
+			PressButton(c)
+		time.sleep(0.1)
+		PressButton(Key.enter)
+		time.sleep(0.1)
+		PressButton(Key.enter)
+		
+		lock_queue.get()
+else:
+	def PressButton(code):
+		pass
+		
+	def PressButtons():
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) F8')
+		
+	def chat_sven(text):
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		
+		lock_queue.put(1)
+		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) y')
+		time.sleep(0.1)
+		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		lock_queue.get()
+		
+	def console_cmd_sven(text):
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) `')
+		time.sleep(0.1)
+		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) `')
+		lock_queue.get()
+		
+	def close_console():
+		global lock_queue
+		
+		while not lock_queue.empty():
+			time.sleep(0.1)
+		
+		lock_queue.put(1)
+		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + 'toggleconsole' + "'")
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		time.sleep(0.1)
+		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
+		lock_queue.get()
+
+def follow(thefile):
+	'''generator function that yields new lines in a file
+	'''
+	# seek the end of the file
+	thefile.seek(0, os.SEEK_END)
+	
+	last_day = datetime.datetime.today().day
+	
+	# start infinite loop
+	while True:
+		# read last line of file
+		line = thefile.readline()        # sleep if file hasn't been updated
+		if not line:
+			time.sleep(0.1)
+			if last_day != datetime.datetime.today().day:
+				print("New day started. Stop following this log")
+				time.sleep(1)
+				return
+			continue
+
+		yield line
+
 def load_all_chatsounds():
 	file1 = open('chatsounds.txt', 'r')
 	for line in file1.readlines():
 		g_chatsounds.append(line.split()[0])
 
 def playsound_async(speaker, sound, pitch):
-	if speaker in g_players:
-		if g_players[speaker].playing:
-			g_players[speaker].pause()
-		g_players[speaker].delete()
+	if speaker in g_tts_players:
+		if g_tts_players[speaker].playing:
+			g_tts_players[speaker].pause()
+		g_tts_players[speaker].delete()
 	
-	player = g_players[speaker] = Player()
+	player = g_tts_players[speaker] = Player()
 	
 	source = pyglet.media.load(sound, streaming=False)
 	player.pitch = pitch
 	player.queue(source)
 	player.play()
-	sound_threads.append(player)
 
 def format_time(seconds):
 	hours = int(seconds / (60*60))
@@ -200,9 +303,9 @@ def format_time(seconds):
 		else:
 			return "%ds" % int(seconds)
 
-def playtube_async(url, offset, player):
+def playtube_async(url, offset, asker):
 	global tts_id
-	global players
+	global g_media_players
 	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
 	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
@@ -221,9 +324,10 @@ def playtube_async(url, offset, player):
 		media = Instance.media_new(playurl)
 		media.add_option('start-time=%d' % offset)
 		player.set_media(media)
-		player.play()		
+		if player.play() == -1:
+			raise Exception("Failed to play the video")
 		
-		players.append(player)
+		g_media_players.append(player)
 		print("Play offset %d: " % offset + video.title)
 		chat_sven("/me - " + video.title + "  [" + format_time(int(video.length)) + "]")
 		
@@ -232,7 +336,7 @@ def playtube_async(url, offset, player):
 	except Exception as e:
 		print(e)
 		
-		chat_sven("/me failed to play a video from " + player + ".")
+		chat_sven("/me failed to play a video from " + str(asker) + ".")
 		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, ))
 		t.daemon = True
 		t.start()
@@ -253,8 +357,12 @@ def play_tts(speaker, text, id, lang, pitch):
 	# Saving the converted audio in a mp3 file named
 	# welcome
 	fname = 'tts/tts%d' % id + '.mp3'
-	myobj.save(fname)
-	
+	try:
+		myobj.save(fname)
+	except Exception as e:
+		print(e)
+		return
+		
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
 	
@@ -271,17 +379,13 @@ def play_tts(speaker, text, id, lang, pitch):
 	
 	normalizedsound.export(output, format="wav")
 	 
-	print("Play %d" % id)
+	#print("Play %d" % id)
 	# Playing the converted file
 	playsound_async(speaker, output, pitch)
 
 	os.remove(fname)
 	os.remove(output)
-	
 
-sven_root = '../../../..'
-csound_path = os.path.join(sven_root, 'svencoop_downloads/sound/twlz')
-	
 def find_console_log():
 	global sven_root
 	
@@ -300,16 +404,12 @@ def find_console_log():
 	
 	return os.path.join(sven_root, logs[len(logs)-1])
 
-filename = find_console_log()
-load_all_chatsounds()
-print("Following log file: " + filename)
 
-tts_enabled = True
+load_all_chatsounds()
 
 # press mic record key over and over
 def button_loop():
 	global lock_queue
-	global players
 	
 	while True:
 		if lock_queue.empty():
@@ -323,32 +423,42 @@ def button_loop():
 def message_loop():
 	global log_queue
 	
+	filename = find_console_log()
+	print("Following log file: " + filename)
+	
 	logfile = open(filename, encoding='utf8', errors='ignore')
 	loglines = follow(logfile)   
 	 # iterate over the generator
 	for line in loglines:
 		log_queue.put(line)
-
-t = Thread(target = button_loop, args =( ))
-t.daemon = True
-t.start()
+	
+	# restart log following
+	t = Thread(target = message_loop, args =( ))
+	t.daemon = True
+	t.start()
 
 t = Thread(target = message_loop, args =( ))
 t.daemon = True
 t.start()
 
+t = Thread(target = button_loop, args =( ))
+t.daemon = True
+t.start()
+
+
+
 while True:
-	wasplaying = len(players) > 0
+	wasplaying = len(g_media_players) > 0
 				
-	for idx, player in enumerate(players):
+	for idx, player in enumerate(g_media_players):
 		if not player.is_playing() and not player.will_play():
-			players.pop(idx)
+			g_media_players.pop(idx)
 			break
 			
-	if len(players) == 0 and wasplaying:
+	if len(g_media_players) == 0 and wasplaying:
 		chat_sven('.e off')
 		
-	if len(players) > 0:
+	if len(g_media_players) > 0:
 		PressButton(Key.right)
 	
 	line = None
@@ -359,6 +469,8 @@ while True:
 	
 	if not line:
 		continue
+	
+	#print(line.strip())
 	
 	if line.startswith('MicBot\\'):
 		print(line.strip())
@@ -371,15 +483,13 @@ while True:
 		pitch = float(line[:line.find("\\")]) / 100
 		line = line[line.find("\\")+1:]
 		
-		if line.startswith(command_prefix):
+		had_prefix = line.startswith(command_prefix)
+		if had_prefix:
 			line = line[1:]
 
 		#print(name + ": " + line.strip())
 		
-		if line.startswith('https://www.youtube.com') or line.startswith('https://youtu.be'):
-			if line.startswith(command_prefix):
-				line = line[1:]
-				
+		if line.startswith('https://www.youtube.com') or line.startswith('https://youtu.be'):				
 			args = line.split()
 			offset = 0
 			try:
@@ -404,25 +514,25 @@ while True:
 			arg = args[1] if len(args) > 1 else ""
 		
 			if arg == "":
-				for player in players:
+				for player in g_media_players:
 					player.stop()
-				players = []
+				g_media_players = []
 				chat_sven(".e off")
 			elif arg == "last":
-				for player in players[1:]:
+				for player in g_media_players[1:]:
 					player.stop()
-				players = players[:1]
+				g_media_players = g_media_players[:1]
 			elif arg == "first":
-				for player in players[:-1]:
+				for player in g_media_players[:-1]:
 					player.stop()
-				players = players[-1:]
+				g_media_players = g_media_players[-1:]
 				
 			if arg == "" or arg == 'speak':
-				for player in sound_threads:
+				for key, player in g_tts_players.items():
 					if player.playing:
 						player.pause()
 					player.delete()
-				sound_threads = []
+				g_tts_players = {}
 			
 		
 			t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, ))
@@ -430,9 +540,22 @@ while True:
 			t.start()
 			tts_id += 1
 			continue
+			
+		if line.startswith('.msay'):
+			sayText = line[len('.msay '):].strip()
+			
+			if sayText.startswith('.mbot'):
+				continue
+			
+			chat_sven(sayText)
+			continue
+			
+		if line.startswith('.munstuck'):
+			chat_sven("") # 
+			continue
 		
 		if tts_enabled:			
-			if line.strip().lower() in g_chatsounds:
+			if not had_prefix and line.strip().lower() in g_chatsounds:
 				continue
 			
 			t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, ))

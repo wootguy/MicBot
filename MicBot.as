@@ -147,6 +147,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop last       = Stop all youtube videos except the one that first started playing.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop first      = Stop all youtube videos except the one that last started playing.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mtts             = enable/disable text to speech for your messages.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .msay             = say something as the bot\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mbot             = register/unregister yourself as a bot with the server.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    You can add a timestamp after a youtube link to play at an offset. For example:\n");
@@ -188,6 +189,13 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 
 			return true;
 		} 
+		else if (args[0] == '.msay') {
+			string msg = "[MicBot] " + plr.pev.netname + ": " + chatText + "\n";
+			g_PlayerFuncs.ClientPrintAll(HUD_PRINTCONSOLE, msg);
+			server_print(plr, msg);
+			message_bots(plr, chatText);
+			return true; // hide from chat relay
+		}
 		else if (args[0] == '.mstop') {
 			string msg = "[MicBot] " + plr.pev.netname + ": " + args[0] + " " + args[1] + "\n";
 			g_PlayerFuncs.ClientPrintAll(HUD_PRINTNOTIFY, msg);
@@ -222,10 +230,10 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			
 			return true; // hide from chat relay
 		}
-		else if (state.ttsEnabled and chatText.Length() > 0 and !state.isBot) {			
+		else if (state.ttsEnabled and chatText.Length() > 0 and chatText.SubString(0,3).ToLowercase() != "/me") {			
 			// message starts repeating due to broken newlines if too long
-			if (string(plr.pev.netname).Length() + chatText.Length() >= 118) {
-				chatText = chatText.SubString(0, 118 - string(plr.pev.netname).Length());
+			if (string(plr.pev.netname).Length() + chatText.Length() >= 110) {
+				chatText = chatText.SubString(0, 110 - string(plr.pev.netname).Length());
 			}
 		
 			message_bots(plr, chatText);
@@ -249,6 +257,12 @@ void server_print(CBasePlayer@ plr, string msg) {
 
 void message_bots(CBasePlayer@ sender, string text) {
 	PlayerState@ senderState = getPlayerState(sender);
+	
+	string msg = "MicBot\\" + sender.pev.netname + "\\" + senderState.lang + "\\" + senderState.pitch + "\\" + text;
+	if (text >= 128) {
+		text = text.SubString(0, 128);
+	}
+	
 
 	for ( int i = 1; i <= g_Engine.maxClients; i++ ) {
 		CBasePlayer@ p = g_PlayerFuncs.FindPlayerByIndex(i);
@@ -289,8 +303,15 @@ CClientCommand _g5("mlang", "Spectate commands", @consoleCmd );
 CClientCommand _g6("mpitch", "Spectate commands", @consoleCmd );
 CClientCommand _g7("mhelp", "Spectate commands", @consoleCmd );
 CClientCommand _g8("mbot", "Spectate commands", @consoleCmd );
+CClientCommand _g9("msay", "Spectate commands", @consoleCmd );
 
 void consoleCmd( const CCommand@ args ) {
+	string chatText = "";
+	
+	for (int i = 0; i < args.ArgC(); i++) {
+		chatText += args[i] + " ";
+	}
+	
 	CBasePlayer@ plr = g_ConCommandSystem.GetCurrentPlayer();
-	doCommand(plr, args, "", true);
+	doCommand(plr, args, chatText, true);
 }

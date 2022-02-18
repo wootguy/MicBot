@@ -45,7 +45,7 @@ MicBot reads messages aloud and can play audio from youtube links.
     
 ## Usage:
 1. Add `-condebug` to the launch options of Sven Co-op. Then, start the game.
-1. Type in console: `volume 0; mp3volume 0; bind F8 "+voicerecord;-voicerecord;+voicerecord"`
+1. Type in console: `volume 0; mp3volume 0; bind F8 "vgui_closeall;+voicerecord;-voicerecord;+voicerecord"`
 1. Join a server which has the MicBot plugin installed.
 1. Say `.mbot` to register yourself as a bot.
 1. Start the `client.py` script
