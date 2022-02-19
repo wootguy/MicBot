@@ -1,4 +1,6 @@
-#include "replay"
+const string VOICE_FILE = "scripts/plugins/MicBot/voice.dat";
+array<array<uint8>> g_voice_packets;
+uint last_file_size = 0;
 
 void print(string text) { g_Game.AlertMessage( at_console, text); }
 void println(string text) { print(text + "\n"); }
@@ -8,61 +10,88 @@ void PluginInit()
 	g_Module.ScriptInfo.SetAuthor( "w00tguy" );
 	g_Module.ScriptInfo.SetContactInfo( "w00tguy123 - forums.svencoop.com" );
 	
-	// best guess for delay, but it goes too fast sometimes, or cuts out, or plays static
-	g_Scheduler.SetInterval("replay_voice", 0.047, -1);
+	//g_Scheduler.SetInterval("load_samples", 0.05, -1);
+	load_samples();
 }
 
-int replayIdx = 0;
+void load_samples() {
+	File@ file = g_FileSystem.OpenFile(VOICE_FILE, OpenFile::READ);
 
-class SvcVoiceDataPacket {
-	uint8 playerIdx = 0;	// player to display the voice icon for
-	uint16 payloadLength;	// size of the header below + sound data
+	if (file !is null && file.IsOpen()) {
+		if (file.GetSize() == last_file_size) {
+			g_Scheduler.SetTimeout("load_samples", 0.02f);
+			return; // file hasn't been updated yet
+		}
 	
-	// below is some sort of header for speex or the sound engine.
-	// The constant values here never or rarely changed during the playback of a song.
-	// Changing any of these values causes the stream to be completely silent.
-	uint8 unknown0 = 67;
-	uint8 unknown1 = 151;
-	uint8 unknown2 = 144;
-	uint8 unknown3 = 18;
-	uint8 unknown4 = 1;
-	uint8 unknown5 = 0;
-	uint8 unknown6 = 16;
-	uint8 unknown7 = 1;
-	uint8 unknown8 = 11;
-	uint8 unknown9 = 192;
-	uint8 unknown10 = 93;
-	uint8 unknown11 = 6;	// set to 0 for last packet in the stream
-	uint16 soundLen;		// equal to payloadLength - 18. Probably means the header data is 18 bytes long.
-	uint16 unknown12;		// generally between 70 and 90
-	uint16 time; 			// time code or sequence number of some sort. Incremented by 1-6 each packet
-
-	// soundLen bytes long. speex or miles codec maybe.
-	// First byte is always 104, second is usually 151 or around there.
-	array<uint8> soundBytes; 
+		last_file_size = file.GetSize();
+	
+		g_last_packet_send = g_EngineFuncs.Time();
+		load_packets_from_file(file, false);
+	} else {
+		g_Log.PrintF("[FakeMic] voice file not found: " + VOICE_FILE + "\n");
+	}
 }
 
-void replay_voice() {
-	array<uint8> packet = replay[replayIdx % replay.size()];
+float g_last_packet_send = 0;
+
+// convert lowercase hex letter to integer
+array<uint8> char_to_nibble = {
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 1, 2, 3, 4, 5, 6, 7,
+	8, 9, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0,
+	0, 10, 11, 12, 13, 14, 15
+};
+
+void load_packets_from_file(File@ file, bool fastSend) {
+	if (file.EOFReached()) {
+		file.Close();
+		load_samples();
+		return;
+	}
 	
-	// SVC_VOICEDATA
+	string line;
+	file.ReadLine(line);
+	
+	if (line.IsEmpty()) {
+		file.Close();
+		load_samples();
+		return;
+	}
+	
+	uint len = line.Length()/2;
+
 	NetworkMessage m(MSG_BROADCAST, NetworkMessages::NetworkMessageType(53), null);
-		m.WriteByte(0); // player index
-		m.WriteShort(packet.size()); // compressed audio length
-		for (uint i = 0; i < packet.size(); i++) {
-			m.WriteByte(packet[i]);
+		m.WriteByte(200); // player index
+		m.WriteShort(len); // compressed audio length
+		for (uint i = 0; i < len; i++) {
+			uint n1 = char_to_nibble[ uint(line[i*2]) ];
+			uint n2 = char_to_nibble[ uint(line[i*2 + 1]) ];
+			m.WriteByte((n1 << 4) + n2);
 		}
 	m.End();
 	
-	string debug = "";
-	for (uint i = 0; i < packet.size() and i < 32; i++) {
-		//debug += formatInt(packet[i], '0H', 2) + " ";
-		debug += formatInt(packet[i], 'l', 3) + " ";
+	bool lowServerFramerate = fastSend or g_EngineFuncs.Time() - g_last_packet_send > 0.04f; // 50 fps
+	g_last_packet_send = g_EngineFuncs.Time();
+	
+	println("Write " + len + " samples" + (lowServerFramerate ? "!" : ""));
+	
+	if (lowServerFramerate) {
+		// Send the rest of the packets now so the stream doesn't cut out.
+		// Sending too fast doesn't affect the stream quality, but too slow causes static.
+		// Steam voice packets load in at about 20-30 per second.
+		load_packets_from_file(file, true);
+	} else {
+		// Try not to impact frametimes too much.
+		// The game has an annoying stutter when packets are sent all at once.
+		g_Scheduler.SetTimeout("load_packets_from_file", 0.0f, @file, false);
 	}
-	
-	uint16 test = (packet[13] << 8) + packet[12];
-	//println("(" + formatInt(packet.size() - test, 'l', 2) + ") " + debug);
-	println(debug);
-	
-	replayIdx += 1;
 }

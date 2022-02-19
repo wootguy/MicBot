@@ -266,7 +266,8 @@ def follow(thefile):
 			time.sleep(0.1)
 			if last_day != datetime.datetime.today().day:
 				print("New day started. Stop following this log")
-				time.sleep(1)
+				chat_sven(".e off")
+				time.sleep(10) # todo: should wait for new message to show in log
 				return
 			continue
 
