@@ -1,7 +1,10 @@
+#include "FakeMic"
+
 void print(string text) { g_Game.AlertMessage( at_console, text); }
 void println(string text) { print(text + "\n"); }
 
 dictionary g_player_states;
+string voice_server_file = "scripts/plugins/store/_tovoice.txt";
 
 class PlayerState {
 	bool isBot = false; // send bot commands to this player?
@@ -104,8 +107,19 @@ void PluginInit()
 	g_Module.ScriptInfo.SetContactInfo( "https://github.com/wootguy/" );
 	
 	g_Hooks.RegisterHook( Hooks::Player::ClientSay, @ClientSay );
+	g_Hooks.RegisterHook( Hooks::Player::ClientPutInServer, @ClientJoin );
 	
 	g_Scheduler.SetInterval("bot_loop", 3.0f, -1);
+	
+	g_voice_ent_idx = getEmptyPlayerSlotIdx();
+	load_samples();
+	play_samples(false);
+}
+
+void MapInit() {
+	File@ file = g_FileSystem.OpenFile( voice_server_file, OpenFile::APPEND );
+	file.Write( null );
+	file.Close();
 }
 
 void bot_loop() {
@@ -256,28 +270,25 @@ void server_print(CBasePlayer@ plr, string msg) {
 }
 
 void message_bots(CBasePlayer@ sender, string text) {
-	PlayerState@ senderState = getPlayerState(sender);
-	
-	string msg = "MicBot\\" + sender.pev.netname + "\\" + senderState.lang + "\\" + senderState.pitch + "\\" + text;
-	if (text >= 128) {
-		text = text.SubString(0, 128);
-	}
-	
-
-	for ( int i = 1; i <= g_Engine.maxClients; i++ ) {
-		CBasePlayer@ p = g_PlayerFuncs.FindPlayerByIndex(i);
-		
-		if (p is null or !p.IsConnected()) {
-			continue;
-		}
-		
-		PlayerState@ pstate = getPlayerState(p);
-		
-		if (pstate.isBot) {
-			g_PlayerFuncs.ClientPrint(p, HUD_PRINTCONSOLE, "MicBot\\" + sender.pev.netname + "\\" + senderState.lang + "\\" + senderState.pitch + "\\" + text + "\n");
-		}
-	}
+	PlayerState@ state = getPlayerState(sender);
+	string msg = "" + sender.pev.netname + "\\" + state.lang + "\\" + state.pitch + "\\" + text + "\n";
+	send_voice_server_message(msg);
 }
+
+void send_voice_server_message(string msg) {
+	File@ file = g_FileSystem.OpenFile( voice_server_file, OpenFile::APPEND );
+	
+	if (!file.IsOpen()) {
+		string text = "[MicBot] Failed to open: " + voice_server_file + "\n";
+		println(text);
+		g_Log.PrintF(text);
+		return;
+	}
+	
+	file.Write(msg);
+	file.Close();
+}
+
 
 HookReturnCode ClientSay( SayParameters@ pParams ) {
 	CBasePlayer@ plr = pParams.GetPlayer();

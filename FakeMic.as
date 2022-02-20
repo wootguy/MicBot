@@ -6,12 +6,13 @@ class VoicePacket {
 array<VoicePacket> g_packet_stream;
 float g_clock_adjust = 0; // adjustment made to sync the server clock with the packet times
 
-const string VOICE_FILE = "scripts/plugins/MicBot/voice.dat";
+const string VOICE_FILE = "scripts/plugins/store/_fromvoice.txt";
 array<array<uint8>> g_voice_packets;
 uint last_file_size = 0;
 uint ideal_buffer_size = 32; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
 float sample_load_start = 0;
 int g_voice_ent_idx = 0;
+float file_check_interval = 0.02f;
 
 // longer than this and python might overwrite what is currently being read
 // keep this in sync with server.py
@@ -34,21 +35,6 @@ array<uint8> char_to_nibble = {
 	0, 10, 11, 12, 13, 14, 15
 };
 
-void print(string text) { g_Game.AlertMessage( at_console, text); }
-void println(string text) { print(text + "\n"); }
-
-void PluginInit()
-{
-	g_Module.ScriptInfo.SetAuthor( "w00tguy" );
-	g_Module.ScriptInfo.SetContactInfo( "github" );
-	
-	g_Hooks.RegisterHook( Hooks::Player::ClientPutInServer, @ClientJoin );
-	
-	g_voice_ent_idx = getEmptyPlayerSlotIdx();
-	load_samples();
-	play_samples(false);
-}
-
 HookReturnCode ClientJoin(CBasePlayer@ plr) 
 {
 	g_voice_ent_idx = getEmptyPlayerSlotIdx();
@@ -68,12 +54,11 @@ int getEmptyPlayerSlotIdx() {
 }
 
 void load_samples() {
-
 	File@ file = g_FileSystem.OpenFile(VOICE_FILE, OpenFile::READ);
 
 	if (file !is null && file.IsOpen()) {
 		if (file.GetSize() == last_file_size) {
-			g_Scheduler.SetTimeout("load_samples", 0.02f);
+			g_Scheduler.SetTimeout("load_samples", file_check_interval);
 			return; // file hasn't been updated yet
 		}
 	
@@ -86,7 +71,7 @@ void load_samples() {
 }
 
 void finish_sample_load(File@ file) {
-	float loadTime = g_EngineFuncs.Time() - sample_load_start;
+	float loadTime = (g_EngineFuncs.Time() - sample_load_start) + file_check_interval + g_Engine.frametime;
 	
 	if (loadTime > MAX_SAMPLE_LOAD_TIME) {
 		g_PlayerFuncs.ClientPrintAll(HUD_PRINTCONSOLE, "[MicBot] Server can't load samples fast enough (" + loadTime + " / " + MAX_SAMPLE_LOAD_TIME + ")\n");
