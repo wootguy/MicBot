@@ -82,7 +82,7 @@ def send_packets_to_plugin(socket, all_packets):
 	
 	time_since_last_write = (datetime.datetime.now() - last_file_write).total_seconds()
 	if len(all_packets) <= buffer_max*buffered_buffers or time_since_last_write < min_time_between_writes:
-		return
+		return all_packets
 	
 	last_file_write = datetime.datetime.now()
 	
@@ -105,6 +105,8 @@ def send_packets_to_plugin(socket, all_packets):
 				#print("  Asked to resend %d" % (packet))
 				
 		print("Wrote %d packets (%d lost, %d buffered, %d requested)" % (buffer_max, lost, len(all_packets), still_missing))
+	
+	return all_packets
 
 def receive_voice_data():
 	global client_address
@@ -168,7 +170,7 @@ def receive_voice_data():
 			expectedPacketId = packetId + 1
 			all_packets.append(hexString)
 			
-		send_packets_to_plugin(udp_socket, all_packets)
+		all_packets = send_packets_to_plugin(udp_socket, all_packets)
 
 t = Thread(target = command_loop, args =( ))
 t.daemon = True

@@ -6,7 +6,7 @@
 # persist settings in case of crash
 # linux mic stops working
 
-import time, os, sys, queue, random, pafy, vlc, pyglet, datetime
+import time, os, sys, queue, random, pafy, vlc, pyglet, datetime, socket, subprocess
 from threading import Thread
 from gtts import gTTS
 from pyglet.media import Player
@@ -20,42 +20,18 @@ g_chatsounds = []
 tts_id = 0
 g_tts_players = {}
 lock_queue = queue.Queue()
-log_queue = queue.Queue()
 command_prefix = '~'
-dance_emotes = [ # cyber_kizuna_dance
-	'.e 180 loop 2',
-	'.e 181 iloop 1',
-	'.e 187 iloop 2'
-	'.e chain 2.4 loop 191 192'
-	'.e 194 loop 3.5',
-	'.e 195 loop 3.5',
-	'.e 196 loop 2.2',
-	'.e 197 loop 2.4',
-	'.e chain 2 loop 198 199',
-	'.e 200 loop 2',
-	'.e 201 loop 2.4',
-	'.e 202 loop 1.7',
-	'.e chain 1.8 loop 203 204_1.4',
-	'.e chain 2.4 loop 205 206 207 208_3.45',
-	'.e 209 loop 1.47',
-	'.e 210 loop 1.75',
-	'.e 211 loop 1.65',
-	'.e 212 loop 5',
-	'.e 213 loop 3.4',
-	'.e 214 loop 6',
-	'.e 215 loop 1.7',
-	'.e 216 loop 1.6',
-	'.e 217 loop 3.8',
-	'.e 218 loop 8',
-	'.e 219 loop 1.6',
-	'.e chain 1.6 loop 220 221 222_1.2',
-	'.e chain 1.6 loop 223 224 225 226_4.35',
-	'.e chain 1.7 loop 227 228 229_1.1',
-	'.e chain 1.85 loop 230 231 232_1.5',
-	'.e chain 1.85 loop 233 234 235 236_1.3',
-	'.e chain 1.85 loop 237 238 239 240_7.2',
-	'.e chain 1.7 loop 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255'
-]
+
+#hostname = '192.168.254.158' # for twlz
+hostname = '192.168.254.106' # for VM testing
+hostport = 1337
+our_addr = (hostname, hostport)
+
+command_queue = queue.Queue()
+reconnect_tcp = False
+
+server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
+
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
 	'afs': {'tld': 'co.za', 'code': 'en', 'name': 'South African'},
@@ -128,151 +104,6 @@ g_valid_langs = {
 	'vi': {'tld': 'com', 'code': 'vi', 'name': 'Vietnamese'}
 }
 
-
-if os.name == 'nt':
-	from pynput.keyboard import Key, Controller
-
-	keyboard = Controller()
-
-	# http://www.flint.jp/misc/?q=dik&lang=en
-	def PressButton(code):
-		keyboard.press(code)
-		keyboard.release(code)
-		
-	def PressButtons():
-		PressButton(Key.f8)
-	
-	def chat_sven(text):
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		
-		PressButton('y')
-		time.sleep(0.1)
-		for c in text:
-			time.sleep(0.01)
-			PressButton(c)
-		time.sleep(0.1)
-		PressButton(Key.enter)
-		
-		lock_queue.get()	
-
-	def console_cmd_sven(text):
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		
-		PressButton('`')
-		time.sleep(0.1)
-		for c in text:
-			time.sleep(0.01)
-			PressButton(c)
-		time.sleep(0.1)
-		PressButton(Key.enter)
-		time.sleep(0.1)
-		PressButton('`')
-		
-		lock_queue.get()
-		
-	def close_console():
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-
-		for c in 'toggleconsole':
-			time.sleep(0.01)
-			PressButton(c)
-		time.sleep(0.1)
-		PressButton(Key.enter)
-		time.sleep(0.1)
-		PressButton(Key.enter)
-		
-		lock_queue.get()
-else:
-	def PressButton(code):
-		pass
-		
-	def PressButtons():
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) F8')
-		
-	def chat_sven(text):
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		
-		lock_queue.put(1)
-		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) y')
-		time.sleep(0.1)
-		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		lock_queue.get()
-		
-	def console_cmd_sven(text):
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		os.system('xdotool type --window $(xdotool search --class svencoop | head -n1) `')
-		time.sleep(0.1)
-		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + text + "'")
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) `')
-		lock_queue.get()
-		
-	def close_console():
-		global lock_queue
-		
-		while not lock_queue.empty():
-			time.sleep(0.1)
-		
-		lock_queue.put(1)
-		os.system('xdotool type --delay 0 --window $(xdotool search --class svencoop | head -n1) \'' + 'toggleconsole' + "'")
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		time.sleep(0.1)
-		os.system('xdotool key --window $(xdotool search --class svencoop | head -n1) Return')
-		lock_queue.get()
-
-def follow(thefile):
-	'''generator function that yields new lines in a file
-	'''
-	# seek the end of the file
-	thefile.seek(0, os.SEEK_END)
-	
-	last_day = datetime.datetime.today().day
-	
-	# start infinite loop
-	while True:
-		# read last line of file
-		line = thefile.readline()        # sleep if file hasn't been updated
-		if not line:
-			time.sleep(0.1)
-			if last_day != datetime.datetime.today().day:
-				print("New day started. Stop following this log")
-				chat_sven(".e off")
-				time.sleep(10) # todo: should wait for new message to show in log
-				return
-			continue
-
-		yield line
-
 def load_all_chatsounds():
 	file1 = open('chatsounds.txt', 'r')
 	for line in file1.readlines():
@@ -330,14 +161,11 @@ def playtube_async(url, offset, asker):
 		
 		g_media_players.append(player)
 		print("Play offset %d: " % offset + video.title)
-		chat_sven("/me - " + video.title + "  [" + format_time(int(video.length)) + "]")
-		
-		rand_idx = random.randrange(0, len(dance_emotes))
-		chat_sven(dance_emotes[rand_idx])
+		#chat_sven("/me - " + video.title + "  [" + format_time(int(video.length)) + "]")
 	except Exception as e:
 		print(e)
 		
-		chat_sven("/me failed to play a video from " + str(asker) + ".")
+		#chat_sven("/me failed to play a video from " + str(asker) + ".")
 		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, ))
 		t.daemon = True
 		t.start()
@@ -387,66 +215,129 @@ def play_tts(speaker, text, id, lang, pitch):
 	os.remove(fname)
 	os.remove(output)
 
-def find_console_log():
-	global sven_root
-	
-	logs = []
-	
-	for file in os.listdir(sven_root):
-		if file.startswith('console-') and file.endswith('.log'):
-			logs.append(file)
-			
-	logs.sort()
-	
-	if len(logs) == 0:
-		print("No console log found. Add -condebug to Sven Co-op's launch options and start the game.")
-		print("If you did that, then make sure this script is in this folder: svencoop_addon/plugins/scripts/MicBot/")
-		sys.exit()
-	
-	return os.path.join(sven_root, logs[len(logs)-1])
-
-
-load_all_chatsounds()
-
-# press mic record key over and over
-def button_loop():
-	global lock_queue
+def command_loop():
+	global our_addr
+	global command_queue
+	global reconnect_tcp
 	
 	while True:
-		if lock_queue.empty():
-			if os.name == 'nt':
-				PressButtons()
-				time.sleep(0.5)
-			else:
-				PressButtons()
-				time.sleep(0.5)
+		tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		tcp_socket.bind(our_addr)
+		tcp_socket.listen(1)
 
-def message_loop():
-	global log_queue
+		data_stream = ''
 	
-	filename = find_console_log()
-	print("Following log file: " + filename)
-	
-	logfile = open(filename, encoding='utf8', errors='ignore')
-	loglines = follow(logfile)   
-	 # iterate over the generator
-	for line in loglines:
-		log_queue.put(line)
-	
-	# restart log following
-	t = Thread(target = message_loop, args =( ))
-	t.daemon = True
-	t.start()
+		print("Waiting for command socket connection")
+		connection, client = tcp_socket.accept()
+	 
+		try:
+			print("Command socket connected")
+			tcp_socket.settimeout(1)
+			# Receive and print data 32 bytes at a time, as long as the client is sending something
+			while True:
+				try:
+					data = connection.recv(32)
+				except Exception as e:
+					if reconnect_tcp:
+						print("Closing command socket")
+						reconnect_tcp = False
+						connection.close()
+						tcp_socket.settimeout(0)
+						break
+					continue
+				data_stream += data.decode()
+				
+				if '\n' in data_stream:
+					command = data_stream[:data_stream.find('\n')]
+					data_stream = data_stream[data_stream.find('\n')+1:]
+					command_queue.put(command)
+	 
+		except Exception as e:
+			connection.close()
 
-t = Thread(target = message_loop, args =( ))
+def transmit_voice():
+	global server_timeout
+	
+	udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
+	udp_socket.bind(our_addr)
+	udp_socket.settimeout(0)
+	
+	server_addr = None
+
+	last_heartbeat = datetime.datetime.now()
+	packetId = 0
+
+	sent_packets = []
+	sent_packets_first_id = 0 # packet id of the first packet in sent_packets
+
+	p = subprocess.Popen('lib/steam_voice.exe', stdout=subprocess.PIPE)
+	for line in iter(p.stdout.readline, ''):
+		idBytes = packetId.to_bytes(2, 'big')
+		try:
+			packet = idBytes + bytes.fromhex(line.decode().strip())
+		except Exception as e:
+			print(e)
+			continue
+		
+		if server_addr:
+			udp_socket.sendto(packet, server_addr)
+			sent_packets.append((packetId, packet))
+			#print("Send %d (%d bytes)" % (packetId, len(packet)))
+			
+			packetId = (packetId + 1) % 65536
+			#packetId = (packetId + 1) % 200
+			
+			if (len(sent_packets) > 128):
+				sent_packets = sent_packets[(len(sent_packets) - 128):]
+		else:
+			print("Waiting for heartbeat on %s:%d" % (hostname, hostport))
+			time.sleep(1)
+		
+		# handle some requests from the server
+		for x in range(0, 4):
+			try:
+				udp_packet = udp_socket.recvfrom(1024)
+				if udp_packet[0] == b'dere':
+					if not server_addr or udp_packet[1][0] != server_addr[0] or udp_packet[1][1] != server_addr[1]:
+						print("Server address changed! Must have restarted.")
+						server_addr = udp_packet[1]
+						reconnect_tcp = True
+				else:
+					want_id = int.from_bytes(udp_packet[0], "big")
+					
+					found = False
+					for packet in sent_packets:
+						if packet[0] == want_id:
+							udp_socket.sendto(b'resent' + packet[1], server_addr)
+							found = True
+							print("Resending %d" % want_id)
+							break
+					if not found:
+						print("Server wanted %d, which is not in sent history" % want_id)
+					
+				last_heartbeat = datetime.datetime.now()
+			except Exception as e:
+				break
+			
+		time_since_last_heartbeat = (datetime.datetime.now() - last_heartbeat).total_seconds()
+		
+		if (time_since_last_heartbeat > server_timeout and server_addr):
+			print("Server isn't there anymore! Probably!!! Wait for reconnect....")
+			server_addr = None
+			
+					
+	p.stdout.close()
+	p.terminate()
+	
+t = Thread(target = command_loop, args =( ))
 t.daemon = True
 t.start()
 
-t = Thread(target = button_loop, args =( ))
+t = Thread(target = transmit_voice, args =( ))
 t.daemon = True
 t.start()
 
-
+load_all_chatsounds()
 
 while True:
 	wasplaying = len(g_media_players) > 0
@@ -455,113 +346,89 @@ while True:
 		if not player.is_playing() and not player.will_play():
 			g_media_players.pop(idx)
 			break
-			
-	if len(g_media_players) == 0 and wasplaying:
-		chat_sven('.e off')
-		
-	if len(g_media_players) > 0:
-		PressButton(Key.right)
 	
 	line = None
 	try:
-		line = log_queue.get(True, 0.05)
+		line = command_queue.get(True, 0.05)
 	except Exception as e:
 		pass
 	
 	if not line:
 		continue
-	
-	#print(line.strip())
-	
-	if line.startswith('MicBot\\'):
-		print(line.strip())
-		
-		line = line[len('MicBot\\'):]
-		name = line[:line.find("\\")]
-		line = line[line.find("\\")+1:]
-		lang = line[:line.find("\\")]
-		line = line[line.find("\\")+1:]
-		pitch = float(line[:line.find("\\")]) / 100
-		line = line[line.find("\\")+1:]
-		
-		had_prefix = line.startswith(command_prefix)
-		if had_prefix:
-			line = line[1:]
 
-		#print(name + ": " + line.strip())
+	print(line.strip())
+	
+	name = line[:line.find("\\")]
+	line = line[line.find("\\")+1:]
+	lang = line[:line.find("\\")]
+	line = line[line.find("\\")+1:]
+	pitch = float(line[:line.find("\\")]) / 100
+	line = line[line.find("\\")+1:]
+	
+	had_prefix = line.startswith(command_prefix)
+	if had_prefix:
+		line = line[1:]
+
+	#print(name + ": " + line.strip())
+	
+	if line.startswith('https://www.youtube.com') or line.startswith('https://youtu.be'):				
+		args = line.split()
+		offset = 0
+		try:
+			if len(args) >= 2:
+				timecode = args[1]
+				if ':' in timecode:
+					minutes = timecode[:timecode.find(':')]
+					seconds = timecode[timecode.find(':')+1:]
+					offset = int(minutes)*60 + int(seconds)
+				else:
+					offset = int(timecode)
+		except Exception as e:
+			print(e)
+	
+		t = Thread(target = playtube_async, args =(args[0], offset, name, ))
+		t.daemon = True
+		t.start()
+		continue
 		
-		if line.startswith('https://www.youtube.com') or line.startswith('https://youtu.be'):				
-			args = line.split()
-			offset = 0
-			try:
-				if len(args) >= 2:
-					timecode = args[1]
-					if ':' in timecode:
-						minutes = timecode[:timecode.find(':')]
-						seconds = timecode[timecode.find(':')+1:]
-						offset = int(minutes)*60 + int(seconds)
-					else:
-						offset = int(timecode)
-			except Exception as e:
-				print(e)
+	if line.startswith('.mstop'):
+		args = line.split()
+		arg = args[1] if len(args) > 1 else ""
+	
+		if arg == "":
+			for player in g_media_players:
+				player.stop()
+			g_media_players = []
+		elif arg == "last":
+			for player in g_media_players[1:]:
+				player.stop()
+			g_media_players = g_media_players[:1]
+		elif arg == "first":
+			for player in g_media_players[:-1]:
+				player.stop()
+			g_media_players = g_media_players[-1:]
+			
+		if arg == "" or arg == 'speak':
+			for key, player in g_tts_players.items():
+				if player.playing:
+					player.pause()
+				player.delete()
+			g_tts_players = {}
 		
-			t = Thread(target = playtube_async, args =(args[0], offset, name, ))
-			t.daemon = True
-			t.start()
+	
+		t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, ))
+		t.daemon = True
+		t.start()
+		tts_id += 1
+		continue
+	
+	if tts_enabled:			
+		if not had_prefix and line.strip().lower() in g_chatsounds:
 			continue
-			
-		if line.startswith('.mstop'):
-			args = line.split()
-			arg = args[1] if len(args) > 1 else ""
 		
-			if arg == "":
-				for player in g_media_players:
-					player.stop()
-				g_media_players = []
-				chat_sven(".e off")
-			elif arg == "last":
-				for player in g_media_players[1:]:
-					player.stop()
-				g_media_players = g_media_players[:1]
-			elif arg == "first":
-				for player in g_media_players[:-1]:
-					player.stop()
-				g_media_players = g_media_players[-1:]
-				
-			if arg == "" or arg == 'speak':
-				for key, player in g_tts_players.items():
-					if player.playing:
-						player.pause()
-					player.delete()
-				g_tts_players = {}
-			
-		
-			t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, ))
-			t.daemon = True
-			t.start()
-			tts_id += 1
-			continue
-			
-		if line.startswith('.msay'):
-			sayText = line[len('.msay '):].strip()
-			
-			if sayText.startswith('.mbot'):
-				continue
-			
-			chat_sven(sayText)
-			continue
-			
-		if line.startswith('.munstuck'):
-			chat_sven("") # 
-			continue
-		
-		if tts_enabled:			
-			if not had_prefix and line.strip().lower() in g_chatsounds:
-				continue
-			
-			t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, ))
-			t.start()
-			tts_id += 1
+		t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, ))
+		t.start()
+		tts_id += 1
 		
 	
 	
