@@ -109,7 +109,7 @@ void PluginInit()
 	g_Hooks.RegisterHook( Hooks::Player::ClientSay, @ClientSay );
 	g_Hooks.RegisterHook( Hooks::Player::ClientPutInServer, @ClientJoin );
 	
-	g_Scheduler.SetInterval("bot_loop", 3.0f, -1);
+	//g_Scheduler.SetInterval("stopsound_fix", 3.0f, -1);
 	
 	g_voice_ent_idx = getEmptyPlayerSlotIdx();
 	load_samples();
@@ -122,24 +122,24 @@ void MapInit() {
 	file.Close();
 }
 
-void bot_loop() {
-	if (!g_SurvivalMode.IsActive()) {
-		return;
-	}
-	
-	for ( int i = 1; i <= g_Engine.maxClients; i++ ) {
-		CBasePlayer@ p = g_PlayerFuncs.FindPlayerByIndex(i);
+void clientCommand(CBaseEntity@ plr, string cmd, NetworkMessageDest destType=MSG_ONE) {
+	NetworkMessage m(destType, NetworkMessages::NetworkMessageType(9), plr.edict());
+		// surround with ; to prevent multiple commands being joined when sent in the same frame(?)
+		// this fixes music sometimes not loading/starting/stopping
+		m.WriteString(";" + cmd + ";");
+	m.End();
+}
+
+void stopsound_fix() {
+	for ( int i = 1; i <= g_Engine.maxClients; i++ )
+	{
+		CBasePlayer@ plr = g_PlayerFuncs.FindPlayerByIndex(i);
 		
-		if (p is null or !p.IsConnected() or !p.IsAlive()) {
+		if (plr is null or !plr.IsConnected()) {
 			continue;
 		}
 		
-		PlayerState@ pstate = getPlayerState(p);
-		
-		if (pstate.isBot) {
-			g_PlayerFuncs.ClientPrint(p, HUD_PRINTTALK, "[MicBot] Bots aren't allowed to live in survival mode.\n");
-			g_EntityFuncs.Remove(p);
-		}
+		clientCommand(plr, "stopsound", MSG_ONE_UNRELIABLE);
 	}
 }
 
@@ -244,12 +244,7 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			
 			return true; // hide from chat relay
 		}
-		else if (state.ttsEnabled and chatText.Length() > 0 and chatText.SubString(0,3).ToLowercase() != "/me") {			
-			// message starts repeating due to broken newlines if too long
-			if (string(plr.pev.netname).Length() + chatText.Length() >= 110) {
-				chatText = chatText.SubString(0, 110 - string(plr.pev.netname).Length());
-			}
-		
+		else if (state.ttsEnabled and chatText.Length() > 0 and chatText.SubString(0,3).ToLowercase() != "/me") {		
 			message_bots(plr, chatText);
 		}
 		

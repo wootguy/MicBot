@@ -9,7 +9,7 @@ float g_clock_adjust = 0; // adjustment made to sync the server clock with the p
 const string VOICE_FILE = "scripts/plugins/store/_fromvoice.txt";
 array<array<uint8>> g_voice_packets;
 uint last_file_size = 0;
-uint ideal_buffer_size = 32; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
+uint ideal_buffer_size = 8; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
 float sample_load_start = 0;
 int g_voice_ent_idx = 0;
 float file_check_interval = 0.02f;
@@ -97,26 +97,33 @@ void load_packets_from_file(File@ file, bool fastSend) {
 		return;
 	}
 	
-	uint16 timestamp = (char_to_nibble[ uint(line[0]) ] << 12) + (char_to_nibble[ uint(line[1]) ] << 8) + 
+	if (line[0] == 'm') {
+		// server message, not a voice packet
+		g_PlayerFuncs.ClientPrintAll(HUD_PRINTTALK, "[MicBot] " + line.SubString(1));
+	} else {
+		uint16 timestamp = (char_to_nibble[ uint(line[0]) ] << 12) + (char_to_nibble[ uint(line[1]) ] << 8) + 
 					   (char_to_nibble[ uint(line[2]) ] << 4) + char_to_nibble[ uint(line[3]) ];
-	uint len = (line.Length()-4)/2;
+		uint len = (line.Length()-4)/2;
 
-	VoicePacket packet;
-	packet.time = timestamp / 1000.0f;
-	
-	for (uint i = 4; i < line.Length()-1; i += 2) {
-		uint n1 = char_to_nibble[ uint(line[i]) ];
-		uint n2 = char_to_nibble[ uint(line[i + 1]) ];
-		packet.data.insertLast((n1 << 4) + n2);
+		VoicePacket packet;
+		packet.time = timestamp / 1000.0f;
+		
+		for (uint i = 4; i < line.Length()-1; i += 2) {
+			uint n1 = char_to_nibble[ uint(line[i]) ];
+			uint n2 = char_to_nibble[ uint(line[i + 1]) ];
+			packet.data.insertLast((n1 << 4) + n2);
+		}
+		
+		g_packet_stream.insertLast(packet);
+
+		if (line.Length() % 2 == 1) {
+			println("ODD LENGTH");
+		}
 	}
 	
-	g_packet_stream.insertLast(packet);
-
-	if (line.Length() % 2 == 1) {
-		println("ODD LENGTH");
-	}
+	float loadTime = (g_EngineFuncs.Time() - sample_load_start) + file_check_interval + g_Engine.frametime;
 	
-	if (g_Engine.frametime > 0.03f) {
+	if (g_Engine.frametime > 0.03f || loadTime > MAX_SAMPLE_LOAD_TIME*0.5f) {
 		// Send the rest of the packets now so the stream doesn't cut out.
 		// Sending too fast doesn't affect the stream quality, but too slow causes static.
 		// Steam voice packets load in at about 20-30 per second.
@@ -167,6 +174,19 @@ void play_samples(bool buffering) {
 		nextPacket = g_packet_stream[0];
 	}
 	
+	// try to keep buffer near ideal size
+	string speedup = "";
+	if (g_packet_stream.size() > ideal_buffer_size*2) {
+		g_clock_adjust += 0.05f;
+		speedup = "Speedup x5";
+	} else if (g_packet_stream.size() > ideal_buffer_size) {
+		g_clock_adjust += 0.01f;
+		speedup = "Speedup";
+	} else if (g_packet_stream.size() < ideal_buffer_size / 2) {
+		g_clock_adjust -= 0.01f;
+		speedup = "slowdown";
+	}
+	
 	float serverTime = g_EngineFuncs.Time() + g_clock_adjust; 
 	float clockDiff = serverTime - packet.time;				  // time difference between server clock and packet clock
 	float delayNeeded = nextPacket.time - serverTime; // time the next packet should be sent
@@ -176,10 +196,11 @@ void play_samples(bool buffering) {
 			+ ", ServerTime: " + formatFloat(serverTime, "", 6, 3)
 			+ ", ErrorTime: " + formatFloat(clockDiff, "+", 3, 3)
 			+ ", Sz: " + formatInt(packet.data.size(), "", 3)
-			//+ ", FrameTime: " + formatFloat(g_Engine.frametime, "", 6, 4)
-			//+ ", delayNeed: " + formatFloat(delayNeeded, "", 6, 4)
+			+ ", FrameTime: " + formatFloat(g_Engine.frametime, "", 6, 4)
+			+ ", delayNeed: " + formatFloat(delayNeeded, "", 6, 4)
 			+ ", nextDelay: " + formatFloat(delayNext, "+", 6, 4)
-			+ ", Buffer: " + formatInt(g_packet_stream.size(), "", 2) + " / " + ideal_buffer_size);
+			+ ", Buffer: " + formatInt(g_packet_stream.size(), "", 2) + " / " + ideal_buffer_size +
+			" " + speedup);
 	
 	if (abs(clockDiff) > 0.5f or delayNext > 0.5f) {
 		println("Syncing server time with mic packet time by " + -clockDiff);
@@ -187,8 +208,6 @@ void play_samples(bool buffering) {
 		if (delayNext > 1.0f)
 			delayNext = 0;
 	}
-	
-	
 	
 	if (delayNext < 0) {
 		play_samples(false);

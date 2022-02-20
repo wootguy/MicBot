@@ -1,4 +1,4 @@
-import socket, sys, time, datetime, os
+import socket, sys, time, datetime, os, queue
 from threading import Thread
 
 # "client" that generates the voice data
@@ -12,19 +12,62 @@ voice_cmd_file = '../../../../svencoop/scripts/plugins/store/_tovoice.txt'
 
 # higher than 16 and plugin might send packets so fast that the stream cuts out
 # special throttling logic is needed for higher buffer sizes
-buffer_max = 8
-buffered_buffers = 4 # number of buffers to hold onto before sending to the plugin. Higher = fewer lost packets
+buffer_max = 4
+buffered_buffers = 3 # number of buffers to hold onto before sending to the plugin. Higher = fewer lost packets
 
 last_file_write = datetime.datetime.now()
 last_heartbeat = datetime.datetime.now()
 min_time_between_writes = 0.1 # give the plugin time to load the file. Keep value in sync with plugin
 time_between_heartbeats = 1 # time between packets to the client, letting it know the server is still listening
+response_queue = queue.Queue()
+last_tcp_heartbeat = datetime.datetime.now()
+last_client_heartbeat = datetime.datetime.now()
 
-def follow(thefile):
+def tcp_heartbeat(socket):
+	global last_tcp_heartbeat
+	
+	time_since_last_heartbeat = (datetime.datetime.now() - last_tcp_heartbeat).total_seconds()
+	
+	if time_since_last_heartbeat > 2.0:
+		#print("send heartbeat")
+		last_tcp_heartbeat = datetime.datetime.now()
+		socket.sendall(b'\n')
+		
+def tcp_listen(socket, response_data):
+	global last_client_heartbeat
+	global response_queue
+	
+	try:
+		data = socket.recv(32).decode()
+		if data:
+			last_client_heartbeat = datetime.datetime.now()
+			response_data += data
+			
+			if '\n' in response_data:
+				message = response_data[:response_data.find('\n')]
+				response_data = response_data[response_data.find('\n')+1:]
+				if message:
+					response_queue.put(message)
+			#print("got: %s" % data)
+		else:
+			time_since_last_client_heartbeat = (datetime.datetime.now() - last_client_heartbeat).total_seconds()
+			if time_since_last_client_heartbeat > 2.0:
+				print("Client appears disconnected. Restarting command socket loop.")
+				return None
+	except Exception as e:
+		#print(e)
+		pass
+		
+	return response_data
+
+def follow(socket, thefile):
 	'''generator function that yields new lines in a file
+	   also threw in some tcp heartbeat and response message logic because yolo
 	'''
 	# seek the end of the file
 	thefile.seek(0, os.SEEK_END)
+	
+	response_data = ''
 	
 	# start infinite loop
 	while True:
@@ -32,22 +75,32 @@ def follow(thefile):
 		line = thefile.readline()        # sleep if file hasn't been updated
 		if not line:
 			time.sleep(0.1)
+			
+			tcp_heartbeat(socket)
+			
+			response_data = tcp_listen(socket, response_data)
+			if response_data is None:
+				break
+				
 			continue
 
 		yield line
-		
+
+
 def command_loop():
 	global client_address
 	global voice_cmd_file
 	
 	while True:
 		try:
+			print("Creating command socket")
 			# Create a connection to the server application on port 81
 			tcp_socket = socket.create_connection(client_address)
+			tcp_socket.settimeout(1)
 			print("Command socket connected")
 
 			logfile = open(voice_cmd_file, encoding='utf8', errors='ignore')
-			loglines = follow(logfile)
+			loglines = follow(tcp_socket, logfile)
 
 			for line in loglines:
 				print("Send command: " + line.strip())
@@ -79,9 +132,10 @@ def send_packets_to_plugin(socket, all_packets):
 	global buffer_max
 	global voice_data_file
 	global client_address
+	global response_queue
 	
 	time_since_last_write = (datetime.datetime.now() - last_file_write).total_seconds()
-	if len(all_packets) <= buffer_max*buffered_buffers or time_since_last_write < min_time_between_writes:
+	if len(all_packets) < buffer_max*buffered_buffers or time_since_last_write < min_time_between_writes:
 		return all_packets
 	
 	last_file_write = datetime.datetime.now()
@@ -94,6 +148,9 @@ def send_packets_to_plugin(socket, all_packets):
 				f.write('00\n')
 			else:
 				f.write(packet)
+				
+		if not response_queue.empty():
+			f.write('m' + response_queue.get())
 		
 		all_packets = all_packets[buffer_max:]
 		
@@ -126,15 +183,18 @@ def receive_voice_data():
 			udp_packet = udp_socket.recvfrom(1024)
 		except socket.timeout:
 			continue
+		except Exception as e:
+			print(e)
+			continue
 		
 		data = udp_packet[0]
-		#print("Got %d (%d bytes)" % (packetId, len(data)))
 		
 		is_resent = data[:6] == b'resent'
 		if is_resent:
 			data = data[6:]
 			
 		packetId = int.from_bytes(data[:2], "big")
+		#print("Got %d (%d bytes)" % (packetId, len(data)))
 		hexString = ''.join(format(x, '02x') for x in data[2:]) + '\n'
 		
 		if is_resent:

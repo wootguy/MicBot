@@ -19,18 +19,21 @@ g_media_players = []
 g_chatsounds = []
 tts_id = 0
 g_tts_players = {}
+command_queue = queue.Queue() # commands from the server
+send_queue = queue.Queue() # messages for the server
 lock_queue = queue.Queue()
 command_prefix = '~'
+cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 
-#hostname = '192.168.254.158' # for twlz
 hostname = '192.168.254.106' # for VM testing
 hostport = 1337
 our_addr = (hostname, hostport)
 
-command_queue = queue.Queue()
+
 reconnect_tcp = False
 
 server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
+resend_packets = 0 # send packets X times to help prevent lost packets while keeping latency down
 
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
@@ -138,17 +141,28 @@ def format_time(seconds):
 def playtube_async(url, offset, asker):
 	global tts_id
 	global g_media_players
+	global cached_video_urls
+	global send_queue
 	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
 	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
 	
 	# https://www.olivieraubert.net/vlc/python-ctypes/doc/ (Ctrl+f MediaPlayer)
-	try:		
-		print("Fetch best audio " + url)
-		video = pafy.new(url)
-		best = video.getbestaudio()
-		playurl = best.url
-		#print("BEST URL: " + playurl)
+	try:
+		playurl = ''
+		title = '???'
+		if url in cached_video_urls:
+			print("Use cached url " + url)
+			playurl = cached_video_urls[url]['url']
+			title = cached_video_urls[url]['title']
+		else:
+			print("Fetch best audio " + url)
+			video = pafy.new(url)
+			best = video.getbestaudio()
+			playurl = best.url
+			title = video.title + "  [" + format_time(int(video.length)) + "]"
+			cached_video_urls[url] = {'url': playurl, 'title': video.title}
+			#print("BEST URL: " + playurl)
 		
 		print("Create vlc instance")
 		Instance = vlc.Instance()
@@ -160,12 +174,12 @@ def playtube_async(url, offset, asker):
 			raise Exception("Failed to play the video")
 		
 		g_media_players.append(player)
-		print("Play offset %d: " % offset + video.title)
-		#chat_sven("/me - " + video.title + "  [" + format_time(int(video.length)) + "]")
+		print("Play offset %d: " % offset + title)
+		send_queue.put(title)
 	except Exception as e:
 		print(e)
 		
-		#chat_sven("/me failed to play a video from " + str(asker) + ".")
+		send_queue.put("failed to play a video from " + str(asker) + ".")
 		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, ))
 		t.daemon = True
 		t.start()
@@ -208,7 +222,7 @@ def play_tts(speaker, text, id, lang, pitch):
 	
 	normalizedsound.export(output, format="wav")
 	 
-	#print("Play %d" % id)
+	print("Play %d" % id)
 	# Playing the converted file
 	playsound_async(speaker, output, pitch)
 
@@ -218,34 +232,48 @@ def play_tts(speaker, text, id, lang, pitch):
 def command_loop():
 	global our_addr
 	global command_queue
-	global reconnect_tcp
+	global server_timeout
+	global send_queue
 	
 	while True:
-		tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		tcp_socket.bind(our_addr)
-		tcp_socket.listen(1)
-
-		data_stream = ''
-	
-		print("Waiting for command socket connection")
-		connection, client = tcp_socket.accept()
-	 
 		try:
+			tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			tcp_socket.bind(our_addr)
+			tcp_socket.listen(1)
+			tcp_socket.settimeout(2)
+			data_stream = ''
+		
+			print("Waiting for command socket connection")
+			connection, client = tcp_socket.accept()
+			last_tcp_heartbeat = datetime.datetime.now()
+			last_send_heartbeat = datetime.datetime.now()
+			connection.settimeout(0.05)
+		
 			print("Command socket connected")
-			tcp_socket.settimeout(1)
 			# Receive and print data 32 bytes at a time, as long as the client is sending something
 			while True:
 				try:
 					data = connection.recv(32)
-				except Exception as e:
-					if reconnect_tcp:
-						print("Closing command socket")
-						reconnect_tcp = False
+				except Exception as e:					
+					time_since_last_heartbeat = (datetime.datetime.now() - last_tcp_heartbeat).total_seconds()					
+					if time_since_last_heartbeat > server_timeout:
+						print("TCP connection appears broken. Restarting.")
 						connection.close()
-						tcp_socket.settimeout(0)
 						break
+						
+					time_since_last_send_heartbeat = (datetime.datetime.now() - last_send_heartbeat).total_seconds()
+					if time_since_last_send_heartbeat >= 2.0:
+						last_send_heartbeat = datetime.datetime.now()
+						connection.sendall(b'\n') # let the server know we're still alive
+						
+					if not send_queue.empty():
+						connection.sendall((send_queue.get() + '\n').encode())
+						
 					continue
+				
 				data_stream += data.decode()
+				#print("Got data %s" % data.decode())
+				last_tcp_heartbeat = datetime.datetime.now()
 				
 				if '\n' in data_stream:
 					command = data_stream[:data_stream.find('\n')]
@@ -253,10 +281,12 @@ def command_loop():
 					command_queue.put(command)
 	 
 		except Exception as e:
-			connection.close()
+			print(e)
+			
 
 def transmit_voice():
 	global server_timeout
+	global resend_packets
 	
 	udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 	udp_socket.bind(our_addr)
@@ -281,6 +311,11 @@ def transmit_voice():
 		
 		if server_addr:
 			udp_socket.sendto(packet, server_addr)
+			
+			if len(sent_packets) > resend_packets:
+				for x in range(0, resend_packets):
+					udp_socket.sendto(b'resent' + sent_packets[-x][1], server_addr)
+				
 			sent_packets.append((packetId, packet))
 			#print("Send %d (%d bytes)" % (packetId, len(packet)))
 			
@@ -301,7 +336,6 @@ def transmit_voice():
 					if not server_addr or udp_packet[1][0] != server_addr[0] or udp_packet[1][1] != server_addr[1]:
 						print("Server address changed! Must have restarted.")
 						server_addr = udp_packet[1]
-						reconnect_tcp = True
 				else:
 					want_id = int.from_bytes(udp_packet[0], "big")
 					
@@ -310,7 +344,7 @@ def transmit_voice():
 						if packet[0] == want_id:
 							udp_socket.sendto(b'resent' + packet[1], server_addr)
 							found = True
-							print("Resending %d" % want_id)
+							#print("Resending %d" % want_id)
 							break
 					if not found:
 						print("Server wanted %d, which is not in sent history" % want_id)
