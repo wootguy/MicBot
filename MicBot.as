@@ -5,10 +5,13 @@ void println(string text) { print(text + "\n"); }
 
 dictionary g_player_states;
 string voice_server_file = "scripts/plugins/store/_tovoice.txt";
+const float BUFFER_DELAY = 0.7f; // minimum time for a voice packet to reach players (seems to actually be 4x longer...)
 
 class PlayerState {
 	bool isBot = false; // send bot commands to this player?
 	bool ttsEnabled = true;
+	bool isListening = true;
+	bool isDebugging = true;
 	string lang = "en";
 	int pitch = 100;
 }
@@ -153,16 +156,16 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "MicBot commands sent to your console.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "MicBot reads messages aloud and can play audio from youtube links.\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    ~<message>        = Hide your message from the chat.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mpitch <1-200>   = set text-to-speech pitch.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlang <language> = set text-to-speech language.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlangs           = list valid languages.\n");			
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop            = Stop all audio.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop speak      = Stop all text-to-speech audio.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop last       = Stop all youtube videos except the one that first started playing.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop first      = Stop all youtube videos except the one that last started playing.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mtts             = enable/disable text to speech for your messages.\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .msay             = say something as the bot\n");
-			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mbot             = register/unregister yourself as a bot with the server.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mmute            = Mute MicBot audio for yourself\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mpitch <1-200>   = Set your text-to-speech pitch.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlang <language> = Set your text-to-speech language.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mlangs           = List valid languages.\n");			
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop            = Stop current audio for everyone.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop speak      = Stop current text-to-speech audio.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop last       = Stop current youtube videos except the one that first started playing.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mstop first      = Stop current youtube videos except the one that last started playing.\n");
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    .mtts             = Enable/Disable text to speech for your messages.\n");
+			
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    You can add a timestamp after a youtube link to play at an offset. For example:\n");
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, "    https://www.youtube.com/watch?v=b8HO6hba9ZE 0:27\n");
@@ -187,29 +190,27 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			state.ttsEnabled = !state.ttsEnabled;
 			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Your text to speech is " + (state.ttsEnabled ? "enabled" : "disabled") + ".\n");
 			return true;
-		} else if (args[0] == ".mbot") {
-			if (args[1] == '1') {
-				state.isBot = true;
-				return true;
-			}
-		
-			state.isBot = !state.isBot;
+		} else if (args[0] == ".mmute") {		
+			state.isListening = !state.isListening;
 			
-			if (state.isBot) {
-				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] You are now a bot and will receive special console messages.\n");
+			if (state.isListening) {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Unmuted.\n");
 			} else {
-				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] You are no longer a bot.\n");
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Muted.\n");
+			}
+
+			return true;
+		} else if (args[0] == ".mdebug") {		
+			state.isDebugging = !state.isDebugging;
+			
+			if (state.isDebugging) {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Debug mode ON.\n");
+			} else {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Debug mode OFF.\n");
 			}
 
 			return true;
 		} 
-		else if (args[0] == '.msay') {
-			string msg = "[MicBot] " + plr.pev.netname + ": " + chatText + "\n";
-			g_PlayerFuncs.ClientPrintAll(HUD_PRINTCONSOLE, msg);
-			server_print(plr, msg);
-			message_bots(plr, chatText);
-			return true; // hide from chat relay
-		}
 		else if (args[0] == '.mstop') {
 			string msg = "[MicBot] " + plr.pev.netname + ": " + args[0] + " " + args[1] + "\n";
 			g_PlayerFuncs.ClientPrintAll(HUD_PRINTNOTIFY, msg);
@@ -284,6 +285,43 @@ void send_voice_server_message(string msg) {
 	file.Close();
 }
 
+void send_debug_message(string msg) {
+	for ( int i = 1; i <= g_Engine.maxClients; i++ )
+	{
+		CBasePlayer@ plr = g_PlayerFuncs.FindPlayerByIndex(i);
+		
+		if (plr is null or !plr.IsConnected()) {
+			continue;
+		}
+		
+		PlayerState@ state = getPlayerState(plr);
+		if (state.isDebugging) {
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTCONSOLE, msg);
+		}
+	}
+}
+
+void send_notification(string msg, bool chatNotNotification) {
+	g_Scheduler.SetTimeout("send_notification_delay", BUFFER_DELAY, msg, chatNotNotification);
+}
+
+void send_notification_delay(string msg, bool chatNotNotification) {
+	for ( int i = 1; i <= g_Engine.maxClients; i++ )
+	{
+		CBasePlayer@ plr = g_PlayerFuncs.FindPlayerByIndex(i);
+		
+		if (plr is null or !plr.IsConnected()) {
+			continue;
+		}
+		
+		PlayerState@ state = getPlayerState(plr);
+		if (state.isListening and chatNotNotification) {
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, msg);
+		} else {
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTNOTIFY, msg);
+		}
+	}
+}
 
 HookReturnCode ClientSay( SayParameters@ pParams ) {
 	CBasePlayer@ plr = pParams.GetPlayer();
@@ -308,8 +346,8 @@ CClientCommand _g4("mstop", "Spectate commands", @consoleCmd );
 CClientCommand _g5("mlang", "Spectate commands", @consoleCmd );
 CClientCommand _g6("mpitch", "Spectate commands", @consoleCmd );
 CClientCommand _g7("mhelp", "Spectate commands", @consoleCmd );
-CClientCommand _g8("mbot", "Spectate commands", @consoleCmd );
-CClientCommand _g9("msay", "Spectate commands", @consoleCmd );
+CClientCommand _g8("mmute", "Spectate commands", @consoleCmd );
+CClientCommand _g9("mdebug", "Spectate commands", @consoleCmd );
 
 void consoleCmd( const CCommand@ args ) {
 	string chatText = "";

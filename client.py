@@ -29,7 +29,6 @@ hostname = '192.168.254.106' # for VM testing
 hostport = 1337
 our_addr = (hostname, hostport)
 
-
 reconnect_tcp = False
 
 server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
@@ -112,6 +111,12 @@ def load_all_chatsounds():
 	for line in file1.readlines():
 		g_chatsounds.append(line.split()[0])
 
+# keep steam voice active so there are no gaps in packets
+# this fixes delays in audio and keeps the server buffer full to prevent packet loss
+def keep_mic_active():
+	saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=16000)
+	saw.play()
+
 def playsound_async(speaker, sound, pitch):
 	if speaker in g_tts_players:
 		if g_tts_players[speaker].playing:
@@ -161,7 +166,7 @@ def playtube_async(url, offset, asker):
 			best = video.getbestaudio()
 			playurl = best.url
 			title = video.title + "  [" + format_time(int(video.length)) + "]"
-			cached_video_urls[url] = {'url': playurl, 'title': video.title}
+			cached_video_urls[url] = {'url': playurl, 'title': title}
 			#print("BEST URL: " + playurl)
 		
 		print("Create vlc instance")
@@ -173,19 +178,18 @@ def playtube_async(url, offset, asker):
 		if player.play() == -1:
 			raise Exception("Failed to play the video")
 		
-		g_media_players.append(player)
+		g_media_players.append({'player': player, 'message_sent': False, 'title': title, 'asker': asker})
 		print("Play offset %d: " % offset + title)
-		send_queue.put(title)
 	except Exception as e:
 		print(e)
 		
 		send_queue.put("failed to play a video from " + str(asker) + ".")
-		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, ))
+		t = Thread(target = play_tts, args =('', str(e), tts_id, "en", 100, False, ))
 		t.daemon = True
 		t.start()
 		tts_id += 1
 
-def play_tts(speaker, text, id, lang, pitch):	
+def play_tts(speaker, text, id, lang, pitch, is_hidden):	
 	# Language in which you want to convert
 	language = g_valid_langs[lang]['code']
 	tld = g_valid_langs[lang]['tld']
@@ -222,9 +226,12 @@ def play_tts(speaker, text, id, lang, pitch):
 	
 	normalizedsound.export(output, format="wav")
 	 
-	print("Play %d" % id)
+	#print("Play %d" % id)
 	# Playing the converted file
 	playsound_async(speaker, output, pitch)
+	
+	if is_hidden:
+		send_queue.put("~" + text)
 
 	os.remove(fname)
 	os.remove(output)
@@ -267,7 +274,9 @@ def command_loop():
 						connection.sendall(b'\n') # let the server know we're still alive
 						
 					if not send_queue.empty():
-						connection.sendall((send_queue.get() + '\n').encode())
+						msg = send_queue.get() + '\n'
+						print(msg)
+						connection.sendall(msg.encode())
 						
 					continue
 				
@@ -305,6 +314,13 @@ def transmit_voice():
 		idBytes = packetId.to_bytes(2, 'big')
 		try:
 			packet = idBytes + bytes.fromhex(line.decode().strip())
+		
+			# The mic needs to always be recording so that there aren't extra gaps during the quiet/silent part of a song.
+			# but it's annoying to always show the voice icon even when nothing is playing.
+			# this special edit will tell the plugin to not send the voice packet.
+			if not is_any_sound_playing():
+				dat = 'ff' if packetId % 8 > 4 else 'ffff' # hack to make sure _fromvoice.txt always changes size (so plugin knows it was updated)
+				packet = packet[:4] + bytes.fromhex(dat) # no packets are ever this small. Plugin will know to replace this with silence
 		except Exception as e:
 			print(e)
 			continue
@@ -372,14 +388,38 @@ t.daemon = True
 t.start()
 
 load_all_chatsounds()
+keep_mic_active()
+
+def is_any_sound_playing():
+	for player in g_media_players:
+		if player['player'].is_playing():
+			return True
+	
+	return len(g_tts_players) > 0
 
 while True:
 	wasplaying = len(g_media_players) > 0
 				
 	for idx, player in enumerate(g_media_players):
-		if not player.is_playing() and not player.will_play():
+		if not player['player'].is_playing() and not player['player'].will_play():
 			g_media_players.pop(idx)
+			if not player['message_sent']:
+				send_queue.put("Failed to play a video from %s" % player['asker'])
+			#print("Finished playing video")
 			break
+		elif player['player'].is_playing() and not player['message_sent']:
+			# send a chat message now that the player started
+			player['message_sent'] = True
+			send_queue.put("Now playing: " + player['title'])
+			
+	delete_keys = []
+	for key, player in g_tts_players.items():
+		if player.source and player.time > player.source.duration*(1.0/player.pitch):
+			#print("Finished tts")
+			player.delete()
+			delete_keys.append(key)
+	for key in delete_keys:
+		del g_tts_players[key]
 	
 	line = None
 	try:
@@ -431,15 +471,15 @@ while True:
 	
 		if arg == "":
 			for player in g_media_players:
-				player.stop()
+				player['player'].stop()
 			g_media_players = []
 		elif arg == "last":
 			for player in g_media_players[1:]:
-				player.stop()
+				player['player'].stop()
 			g_media_players = g_media_players[:1]
 		elif arg == "first":
 			for player in g_media_players[:-1]:
-				player.stop()
+				player['player'].stop()
 			g_media_players = g_media_players[-1:]
 			
 		if arg == "" or arg == 'speak':
@@ -450,7 +490,7 @@ while True:
 			g_tts_players = {}
 		
 	
-		t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, ))
+		t = Thread(target = play_tts, args =(name, 'stop ' + arg, tts_id, lang, pitch, False, ))
 		t.daemon = True
 		t.start()
 		tts_id += 1
@@ -460,7 +500,7 @@ while True:
 		if not had_prefix and line.strip().lower() in g_chatsounds:
 			continue
 		
-		t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, ))
+		t = Thread(target = play_tts, args =(name, line, tts_id, lang, pitch, had_prefix, ))
 		t.start()
 		tts_id += 1
 		

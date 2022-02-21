@@ -47,6 +47,7 @@ def tcp_listen(socket, response_data):
 				message = response_data[:response_data.find('\n')]
 				response_data = response_data[response_data.find('\n')+1:]
 				if message:
+					print(message)
 					response_queue.put(message)
 			#print("got: %s" % data)
 		else:
@@ -125,7 +126,7 @@ def heartbeat(socket):
 		last_heartbeat = datetime.datetime.now()
 		#print("heartbeat %s:%d" % client_address)
 		
-def send_packets_to_plugin(socket, all_packets):
+def send_packets_to_plugin(socket, all_packets, force_send):
 	global last_file_write
 	global min_time_between_writes
 	global buffered_buffers
@@ -134,9 +135,13 @@ def send_packets_to_plugin(socket, all_packets):
 	global client_address
 	global response_queue
 	
-	time_since_last_write = (datetime.datetime.now() - last_file_write).total_seconds()
-	if len(all_packets) < buffer_max*buffered_buffers or time_since_last_write < min_time_between_writes:
+	if len(all_packets) == 0:
 		return all_packets
+	
+	if not force_send:
+		time_since_last_write = (datetime.datetime.now() - last_file_write).total_seconds()
+		if len(all_packets) < buffer_max*buffered_buffers or time_since_last_write < min_time_between_writes:
+			return all_packets
 	
 	last_file_write = datetime.datetime.now()
 	
@@ -167,9 +172,12 @@ def send_packets_to_plugin(socket, all_packets):
 
 def receive_voice_data():
 	global client_address
+	global response_queue
 
 	all_packets = []
 	expectedPacketId = -1
+	last_packet_time = datetime.datetime.now()
+	is_connected = False
 
 	udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 	udp_socket.settimeout(1)
@@ -179,6 +187,14 @@ def receive_voice_data():
 	while True:
 		heartbeat(udp_socket)
 		
+		time_since_last_packet = (datetime.datetime.now() - last_packet_time).total_seconds()
+		if time_since_last_packet > 3:
+			expectedPacketId = -1
+			if is_connected:
+				response_queue.put("Micbot is now offline.")
+			is_connected = False
+			all_packets = send_packets_to_plugin(udp_socket, all_packets, True)
+		
 		try:
 			udp_packet = udp_socket.recvfrom(1024)
 		except socket.timeout:
@@ -186,6 +202,11 @@ def receive_voice_data():
 		except Exception as e:
 			print(e)
 			continue
+		
+		last_packet_time = datetime.datetime.now()
+		if not is_connected:
+			response_queue.put("Micbot is now online. Say .mmute to mute it, or .mhelp for all commands.")
+		is_connected = True
 		
 		data = udp_packet[0]
 		
@@ -230,7 +251,7 @@ def receive_voice_data():
 			expectedPacketId = packetId + 1
 			all_packets.append(hexString)
 			
-		all_packets = send_packets_to_plugin(udp_socket, all_packets)
+		all_packets = send_packets_to_plugin(udp_socket, all_packets, False)
 
 t = Thread(target = command_loop, args =( ))
 t.daemon = True

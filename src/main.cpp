@@ -50,7 +50,7 @@ int main(int argc, const char **argv)
 
 	while (true) {
 		DumpMicData();
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
 	}
 
 	SteamAPI_Shutdown();
