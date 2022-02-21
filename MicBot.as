@@ -210,7 +210,18 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 			}
 
 			return true;
-		} 
+		}
+		else if (args[0] == '.mbuffer') {
+			if (!isAdmin) {
+				g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Admins only.\n");
+				return true;
+			}
+			
+			ideal_buffer_size = atoi(args[1]);
+			g_packet_stream.resize(0);
+			g_PlayerFuncs.ClientPrint(plr, HUD_PRINTTALK, "[MicBot] Ideal buffer size set to " + ideal_buffer_size + ".\n");
+			return true;
+		}
 		else if (args[0] == '.mstop') {
 			string msg = "[MicBot] " + plr.pev.netname + ": " + args[0] + " " + args[1] + "\n";
 			g_PlayerFuncs.ClientPrintAll(HUD_PRINTNOTIFY, msg);

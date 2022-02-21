@@ -25,14 +25,15 @@ lock_queue = queue.Queue()
 command_prefix = '~'
 cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 
-hostname = '192.168.254.106' # for VM testing
+#hostname = '192.168.254.106' # Windows VM
+hostname = '192.168.254.110' # Linux VM
 hostport = 1337
 our_addr = (hostname, hostport)
 
 reconnect_tcp = False
 
 server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
-resend_packets = 0 # send packets X times to help prevent lost packets while keeping latency down
+resend_packets = 0 # send packets X extra times to help prevent lost packets while keeping latency down
 
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
@@ -113,9 +114,18 @@ def load_all_chatsounds():
 
 # keep steam voice active so there are no gaps in packets
 # this fixes delays in audio and keeps the server buffer full to prevent packet loss
+# frequency can't be too high or else steam won't pick it up. Low freqs causes crackling.
 def keep_mic_active():
-	saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=16000)
+	#saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=16000)
+	saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=8000)
 	saw.play()
+
+def is_any_sound_playing():
+	for player in g_media_players:
+		if player['player'].is_playing():
+			return True
+	
+	return len(g_tts_players) > 0
 
 def playsound_async(speaker, sound, pitch):
 	if speaker in g_tts_players:
@@ -245,6 +255,7 @@ def command_loop():
 	while True:
 		try:
 			tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 			tcp_socket.bind(our_addr)
 			tcp_socket.listen(1)
 			tcp_socket.settimeout(2)
@@ -309,7 +320,8 @@ def transmit_voice():
 	sent_packets = []
 	sent_packets_first_id = 0 # packet id of the first packet in sent_packets
 
-	p = subprocess.Popen('lib/steam_voice.exe', stdout=subprocess.PIPE)
+	process_name = 'steam_voice.exe' if os.name == 'nt' else 'steam_voice'
+	p = subprocess.Popen(os.path.join('lib', process_name), stdout=subprocess.PIPE)
 	for line in iter(p.stdout.readline, ''):
 		idBytes = packetId.to_bytes(2, 'big')
 		try:
@@ -389,13 +401,6 @@ t.start()
 
 load_all_chatsounds()
 keep_mic_active()
-
-def is_any_sound_playing():
-	for player in g_media_players:
-		if player['player'].is_playing():
-			return True
-	
-	return len(g_tts_players) > 0
 
 while True:
 	wasplaying = len(g_media_players) > 0

@@ -2,8 +2,9 @@ import socket, sys, time, datetime, os, queue
 from threading import Thread
 
 # "client" that generates the voice data
-#hostname = '47.157.183.178' # for twlz
-hostname = '192.168.254.106' # for VM test
+#hostname = '47.157.183.178' # twlz
+#hostname = '192.168.254.106' # Windows VM
+hostname = '192.168.254.110' # Linux VM
 hostport = 1337
 client_address = (hostname, hostport)
 
@@ -205,7 +206,7 @@ def receive_voice_data():
 		
 		last_packet_time = datetime.datetime.now()
 		if not is_connected:
-			response_queue.put("Micbot is now online. Say .mmute to mute it, or .mhelp for all commands.")
+			response_queue.put("Micbot is now online. Say .mhelp for commands.")
 		is_connected = True
 		
 		data = udp_packet[0]

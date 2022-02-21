@@ -18,14 +18,17 @@ if(MSVC)
 	
 	# Disable C++ exceptions
 	#string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-	
-	target_link_libraries(${PROJECT_NAME} steam_api)
-	
+    set(LINK_LIBS steam_api)
+
 else()
-    set(CMAKE_CXX_FLAGS "-Wall")
+    set(CMAKE_CXX_FLAGS "-Wall -m32")
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
     set(CMAKE_CXX_FLAGS_RELEASE "-Os -fno-exceptions -w -Wfatal-errors")
+
+    set(LINK_LIBS ${CMAKE_CURRENT_LIST_DIR}/lib/libsteam_api.so)
+    set(LINK_OPTIONS -R .) # load libraries from the same directory as the program
 endif()
 
+target_link_libraries(${PROJECT_NAME} ${LINK_LIBS} ${OPTIONS})
 
 

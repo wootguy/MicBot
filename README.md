@@ -30,7 +30,7 @@ MicBot reads messages aloud and can play audio from youtube links.
 1. Make "Stereo mix" your default recording device for sven or install something like Virtual Audio Cable to get sven to hear your desktop sounds.
 
 ## Linux installation:
-1. `sudo apt install xdotool python3-gst-1.0 python3 python3-pip ffmpeg vlc`
+1. `sudo apt install python3-gst-1.0 python3 python3-pip ffmpeg vlc build-essential g++-multilib git cmake`
 1. `pip3 install pafy gtts python-vlc pyglet pydub youtube_dl yt-dlp`
 1. Redirect sven to record from your speaker output. I had to do this for a Lubuntu 18.04 x64 VM:
     * sudo apt install pavucontrol

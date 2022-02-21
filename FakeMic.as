@@ -7,7 +7,6 @@ array<VoicePacket> g_packet_stream;
 float g_clock_adjust = 0; // adjustment made to sync the server clock with the packet times
 
 const string VOICE_FILE = "scripts/plugins/store/_fromvoice.txt";
-array<array<uint8>> g_voice_packets;
 uint last_file_size = 0;
 uint ideal_buffer_size = 12; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
 float sample_load_start = 0;
@@ -207,13 +206,19 @@ void play_samples(bool buffering) {
 	string logSpecial = silentPacket ? "silence " : "";
 	if (g_packet_stream.size() > ideal_buffer_size*2) {
 		g_clock_adjust += 0.05f;
-		logSpecial = "Speedup x5";
+		logSpecial = "Speedup 0.05";
 	} else if (g_packet_stream.size() > ideal_buffer_size) {
 		g_clock_adjust += 0.01f;
-		logSpecial = "Speedup";
+		logSpecial = "Speedup 0.01";
+	} else if (g_packet_stream.size() >= ideal_buffer_size) {
+		g_clock_adjust += 0.002f;
+		logSpecial = "Speedup 0.002";
 	} else if (g_packet_stream.size() < 4) {
 		g_clock_adjust -= 0.01f;
-		logSpecial = "Slowdown";
+		logSpecial = "Slowdown 0.01";
+	} else if (g_packet_stream.size() < ideal_buffer_size / 2) {
+		g_clock_adjust -= 0.002f;
+		logSpecial = "Slowdown 0.002";
 	}
 	
 	float serverTime = g_EngineFuncs.Time() + g_clock_adjust; 
