@@ -6,11 +6,14 @@
 # persist settings in case of crash
 # linux mic stops working
 
+# keep mic active on linux:
+# pactl load-module module-sine frequency=1000
+# pactl unload-module module-sine (to stop it)
+
 import time, os, sys, queue, random, pafy, vlc, pyglet, datetime, socket, subprocess
 from threading import Thread
 from gtts import gTTS
 from pyglet.media import Player
-from pydub import AudioSegment, effects
 
 sven_root = '../../../..'
 csound_path = os.path.join(sven_root, 'svencoop_downloads/sound/twlz')
@@ -25,8 +28,14 @@ lock_queue = queue.Queue()
 command_prefix = '~'
 cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 
+#command_queue.put('w00tguy\\en\\100\\https://www.youtube.com/watch?v=zZdVwTjUtjg')
+#command_queue.put('w00tguy\\en\\80\\~test test test test test test test test test test test test test test')
+command_queue.put('w00tguy\\en\\80\\https://youtu.be/-zEJEdbZUP8')
+
+hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
-hostname = '192.168.254.110' # Linux VM
+#hostname = '192.168.254.110' # Linux VM
+#hostname = '107.191.105.136' # VPS
 hostport = 1337
 our_addr = (hostname, hostport)
 
@@ -112,14 +121,6 @@ def load_all_chatsounds():
 	for line in file1.readlines():
 		g_chatsounds.append(line.split()[0])
 
-# keep steam voice active so there are no gaps in packets
-# this fixes delays in audio and keeps the server buffer full to prevent packet loss
-# frequency can't be too high or else steam won't pick it up. Low freqs causes crackling.
-def keep_mic_active():
-	#saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=16000)
-	saw = pyglet.media.synthesis. Sine(duration=946080000.0, frequency=8000)
-	saw.play()
-
 def is_any_sound_playing():
 	for player in g_media_players:
 		if player['player'].is_playing():
@@ -171,13 +172,14 @@ def playtube_async(url, offset, asker):
 			playurl = cached_video_urls[url]['url']
 			title = cached_video_urls[url]['title']
 		else:
-			print("Fetch best audio " + url)
+			print("New pafy")
 			video = pafy.new(url)
+			print("Fetch best audio " + url)
 			best = video.getbestaudio()
 			playurl = best.url
 			title = video.title + "  [" + format_time(int(video.length)) + "]"
 			cached_video_urls[url] = {'url': playurl, 'title': title}
-			#print("BEST URL: " + playurl)
+			print("BEST URL: " + playurl)
 		
 		print("Create vlc instance")
 		Instance = vlc.Instance()
@@ -203,14 +205,15 @@ def play_tts(speaker, text, id, lang, pitch, is_hidden):
 	# Language in which you want to convert
 	language = g_valid_langs[lang]['code']
 	tld = g_valid_langs[lang]['tld']
-	  
+	
 	# Passing the text and language to the engine, 
 	# here we have marked slow=False. Which tells 
 	# the module that the converted audio should 
 	# have a high speed
-	#print("Translating %d" % id)
+	print("Translating %d" % id)
 	myobj = gTTS(text=text, tld=tld, lang=language, slow=False)
-	  
+	 
+	print("SAVE DA OBJECT")
 	# Saving the converted audio in a mp3 file named
 	# welcome
 	fname = 'tts/tts%d' % id + '.mp3'
@@ -223,28 +226,27 @@ def play_tts(speaker, text, id, lang, pitch, is_hidden):
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
 	
-	#print("Normalize %d" % (id))
+	
 	output = 'tts/tts%d.wav' % id
 	
-	rawsound = AudioSegment.from_file(fname, "mp3")  
-	normalizedsound = effects.normalize(rawsound)  
+	print("ffmpeg adjust %d" % (id))
 	
-	if totalCaps > totalLower:
-		normalizedsound = normalizedsound + 1000
-	else:
-		normalizedsound = normalizedsound + 5
-	
-	normalizedsound.export(output, format="wav")
+	vol = 500 if totalCaps > totalLower else 5
+	ffmpeg_cmd = 'ffmpeg -i %s -y -af loudnorm=-5:LRA=11:TP=-1.5 -filter:a volume=%s -f wav -acodec pcm_u8 -ar 22050 -' % (fname, vol)
+	ps = subprocess.Popen(ffmpeg_cmd.split(' '), stdout=subprocess.PIPE)
+	output = subprocess.check_output('aplay', stdin=ps.stdout)
+	print("now wait")
+	ps.wait()
+	#os.system(cmd)
 	 
-	#print("Play %d" % id)
+	print("Played %d" % id)
 	# Playing the converted file
-	playsound_async(speaker, output, pitch)
+	#playsound_async(speaker, output, pitch)
 	
 	if is_hidden:
 		send_queue.put("~" + text)
 
 	os.remove(fname)
-	os.remove(output)
 
 def command_loop():
 	global our_addr
@@ -323,6 +325,10 @@ def transmit_voice():
 	process_name = 'steam_voice.exe' if os.name == 'nt' else 'steam_voice'
 	p = subprocess.Popen(os.path.join('lib', process_name), stdout=subprocess.PIPE)
 	for line in iter(p.stdout.readline, ''):
+		if not line:
+			time.sleep(0.1)
+			print("DELAY STDOUT")
+			
 		idBytes = packetId.to_bytes(2, 'big')
 		try:
 			packet = idBytes + bytes.fromhex(line.decode().strip())
@@ -330,7 +336,7 @@ def transmit_voice():
 			# The mic needs to always be recording so that there aren't extra gaps during the quiet/silent part of a song.
 			# but it's annoying to always show the voice icon even when nothing is playing.
 			# this special edit will tell the plugin to not send the voice packet.
-			if not is_any_sound_playing():
+			if not is_any_sound_playing() and False:
 				dat = 'ff' if packetId % 8 > 4 else 'ffff' # hack to make sure _fromvoice.txt always changes size (so plugin knows it was updated)
 				packet = packet[:4] + bytes.fromhex(dat) # no packets are ever this small. Plugin will know to replace this with silence
 		except Exception as e:
@@ -400,7 +406,6 @@ t.daemon = True
 t.start()
 
 load_all_chatsounds()
-keep_mic_active()
 
 while True:
 	wasplaying = len(g_media_players) > 0

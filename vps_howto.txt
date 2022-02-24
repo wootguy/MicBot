@@ -1,0 +1,48 @@
+Installing:
+1) install steam on VM with same distro (VPS doesn't have enough RAM to update)
+2) copy .steam from VM to VPS
+3) sudo apt install xvfb x11vnc
+4) export DISPLAY=:1
+5) Xvfb $DISPLAY -screen 0 1024x768x24 &
+6) x11vnc -display $DISPLAY -bg -forever -nopw
+7) /usr/games/steam -no-browser
+8) connect over VNC and sign in to steam (be sure to "remember password")
+
+running again:
+1) export DISPLAY=:1
+2) /usr/games/steam -no-browser -single_core -silent
+
+
+Setup audio:
+# Load pulseaudio virtual audio source
+pulseaudio -D --exit-idle-time=-1
+
+# Create virtual output device (used for audio playback)
+pactl load-module module-null-sink sink_name=DummyOutput sink_properties=device.description="Virtual_Dummy_Output"
+
+# Create virtual microphone output, used to play media into the "microphone"
+pactl load-module module-null-sink sink_name=MicOutput sink_properties=device.description="Virtual_Microphone_Output"
+
+# Set the default source device (for future sources) to use the monitor of the virtual microphone output
+pacmd set-default-source MicOutput.monitor
+
+# Create a virtual audio source linked up to the virtual microphone output
+pacmd load-module module-virtual-source source_name=VirtualMic
+
+
+then some combination of:
+pulseaudio -k
+pulseaudio -D --exit-idle-time=-1
+pactl load-module module-loopback latency_msec=1
+pavucontrol --display=:1
+
+
+
+prefer ipv4 in gai.conf or else youtube-dl and gtts will fail to connect:
+precedence  ::1/128       50
+precedence  ::/0          40
+precedence  2002::/16     30
+precedence ::/96          20
+precedence ::ffff:0:0/96  100
+
+

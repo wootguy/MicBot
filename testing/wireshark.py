@@ -3,35 +3,55 @@ from scapy.utils import RawPcapReader
 from scapy.layers.l2 import Ether
 from scapy.layers.inet import IP, TCP
 from bitstring import BitArray, BitStream, ReadError
-import argparse, os, sys
+import argparse, os, sys, time
 
-super_string = ""
-replay_txt = open('replay.as', 'w')
-replay_txt.write('array<array<uint8>> replay = {')
+last_counter = 0
+clock_adjust = 0
+
+time_since_last = 0
 
 def process_voice_packet(packet, data):
+	global last_counter
+	global time
+	global clock_adjust
+	
 	idx = data.find(b'\x35')
 	if idx != -1:
 		deltaPacket = BitStream(data[idx+1:])
 		playerIdx = deltaPacket.read('uintle:8')
 		length = deltaPacket.read('uintle:16')
+		steamid = deltaPacket.read('uintle:64')
+		ptype = deltaPacket.read('uintle:8')
+		rate = deltaPacket.read('uintle:16')
+		ptype2 = deltaPacket.read('uintle:8')
+		opusLen = deltaPacket.read('uintle:16')
+		unknown0 = deltaPacket.read('uintle:16')
+		clock = deltaPacket.read('uintle:16') # when mic stops it adds huge amount, then resets to 0
 		
-		if playerIdx != 0:
+		if steamid != 76561198271731523:
 			return
 		
-		print("Parse svc_voicedata, idx %d, len %d, offset %d" % (playerIdx, length, idx) )
-		print(packet)
+		diff = int(clock) - int(last_counter)
+		last_counter = clock
+		seconds = (clock / 1000.0)*20.0
+		'''
+		realtime = time.time() + clock_adjust
+		if abs(realtime - seconds) > 0.5:
+			clock_adjust = seconds - time.time()
+			if (realtime > seconds):
+				print("TOO SLOW")
+			else:
+				print("TOO FAST")
 		
-		byte_str = "\t{"
-		for x in range(0, length):
-			byte_str += "%d, " % deltaPacket.read('uintle:8')
-			
-		byte_str = byte_str[:-2] + "},"
-		replay_txt.write(byte_str + "\n")
+		print("ptype %d, rate %d, ptype2 %d, opusLen %3d, %4X %4X (%+6d) (%.2f - %.2f)"
+				% (ptype, rate, ptype2, opusLen, unknown0, clock, diff, seconds, realtime) )
+		'''
+		
+		print("ptype %d, rate %d, ptype2 %d, opusLen %3d, %d"
+				% (ptype, rate, ptype2, opusLen, unknown0) )
 	
 def process_sniffed_packets(packet):
 	payload = bytes(packet.payload.payload)
-	print(packet)
 
 	try:
 		process_voice_packet(packet, payload)
