@@ -12,6 +12,8 @@ set(SOURCE_FILES
 	src/pipes.h src/pipes_win.cpp
 	src/ThreadSafeInt.h src/ThreadSafeInt.cpp
 	src/PipeInputBuffer.h src/PipeInputBuffer.cpp
+	src/SteamVoiceEncoder.h src/SteamVoiceEncoder.cpp
+	src/crc32.h src/crc32.cpp
 )
 
 include_directories(src)
