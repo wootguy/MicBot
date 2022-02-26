@@ -1,9 +1,3 @@
-#include <webm/callback.h>
-#include <webm/file_reader.h>
-#include <webm/status.h>
-#include <webm/webm_parser.h>
-
-
 #include <stdint.h>
 #include <vector>
 #include <string>
@@ -13,11 +7,14 @@
 #include <iostream>
 #include "opus/opus.h"
 #include "pipes.h"
-#include "curl/curl.h"
+#include "PipeInputBuffer.h"
 
 #include "opus_util.h"
 
 using namespace std;
+using std::chrono::milliseconds;
+using std::chrono::duration_cast;
+using std::chrono::system_clock;
 
 
 struct OpusFrame {
@@ -205,93 +202,106 @@ void encode_test() {
 	outfile.close();
 }
 
-struct MemoryStruct {
-	char* memory;
-	size_t size;
-};
+#define MAX_CHANNELS 4
+#define PIPE_BUFFER_SIZE 16384
 
-int totalBytes = 0;
+PipeInputBuffer* g_pipes[MAX_CHANNELS];
+int g_sampling_rate = 12000; // should be something opus supports and is divisble by packet delay
+int g_packet_delay = 100; // millesconds between output packets
 
-static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, void* userp)
-{
-	size_t realsize = size * nmemb;
-
-	//memcpy(&(mem->memory[mem->size]), contents, realsize);
-
-	std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-	printf("Loaded some memory %d\n", realsize);
-	totalBytes += realsize;
-
-	return realsize;
+long long getTimeMillis() {
+	return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-// youtube-dl -f worstaudio https://www.youtube.com/watch?v=Twi92KYddW4 -g --get-filename --skip-download
+void WriteOutputWav(vector<int16_t>& allSamples) {
+	wav_hdr header;
+	header.ChunkSize = allSamples.size() * 2 + sizeof(wav_hdr) - 8;
+	header.Subchunk2Size = allSamples.size() * 2 + sizeof(wav_hdr) - 44;
 
+	string fname = "mixer.wav";
+	ofstream out(fname, ios::binary);
+	out.write(reinterpret_cast<const char*>(&header), sizeof(header));
 
-void curl_test() {
-	CURL* curl_handle;
-	CURLcode res;
-
-	curl_global_init(CURL_GLOBAL_ALL);
-
-	/* init the curl session */
-	curl_handle = curl_easy_init();
-
-	/* specify URL to get */
-	//curl_easy_setopt(curl_handle, CURLOPT_URL, "https://rr3---sn-5hne6nzs.googlevideo.com/videoplayback?expire=1645663487&ei=n4AWYtLqHcOD6dsPy_SQiAs&ip=107.191.105.136&id=o-ADyMD6HjKfLJRCvj5kNQmP2HFZa7U1nBFOPS6R_C7EwG&itag=251&source=youtube&requiressl=yes&mh=43&mm=31%2C26&mn=sn-5hne6nzs%2Csn-5ualdn76&ms=au%2Conr&mv=u&mvi=3&pl=24&vprv=1&mime=audio%2Fwebm&ns=thV4GblUswHqjOYsOKmfEuEG&gir=yes&clen=499858631&dur=36000.881&lmt=1574588899335329&mt=1645641428&fvip=6&keepalive=yes&fexp=24001373%2C24007246&c=WEB&txp=5311222&n=3CoZ6lAZXOjC-ShIUzuU&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cvprv%2Cmime%2Cns%2Cgir%2Cclen%2Cdur%2Clmt&sig=AOq0QJ8wRAIgbxaySSeec0Cr5aruVibh_YZs8uM_PA3EFpf0_5vnHTYCIBmJBvlL5c-RpbTKx7gAvsUs8IxXAmXFlyaLPEB1aqJO&lsparams=mh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl&lsig=AG3C_xAwRgIhAOU9OWxVScwCv_chL3nahgofMxdfguEGg3P5CChbv3n3AiEA1COWlGhpSdIQpo6RycIkZER2vD57gYRZyCA0CyzAYac%3D");
-	curl_easy_setopt(curl_handle, CURLOPT_URL, "https://rr1---sn-a5mekned.googlevideo.com/videoplayback/expire/1645683363/ei/Q84WYrfHL9vKkga14YeABA/ip/47.157.183.178/id/fb310911d6d950ff/itag/139/source/youtube/requiressl/yes/mh/_a/mm/31,29/mn/sn-a5mekned,sn-a5msen7l/ms/au,rdu/mv/m/mvi/1/pl/18/initcwndbps/1600000/spc/4ocVC0dClDSVjK9edaynN_6U1ort/vprv/1/ratebypass/yes/mime/audio%2Fmp4/otfp/1/gir/yes/clen/673898/lmt/1621805188000584/dur/110.387/mt/1645661335/fvip/1/keepalive/yes/fexp/24001373,24007246/sparams/expire,ei,ip,id,itag,source,requiressl,spc,vprv,ratebypass,mime,otfp,gir,clen,lmt,dur/sig/AOq0QJ8wRQIhAM6TrPQlsUrZMCcdPSnuVAJHOuBVEJGFPkiIuxto2jHSAiA8lTFaQFxhwCl5MfnSSJAcZ_bCUZJfwmJ-2STyrp9vog%3D%3D/lsparams/mh,mm,mn,ms,mv,mvi,pl,initcwndbps/lsig/AG3C_xAwRAIgD50dG55ySDsx1AgKCoc5PSLdd7n3gPqv79YEUOAyDL8CIGu6hY3ZHRhp1Qx2SDQ2IY1tlUGcvOauidlfvV_H1ONi/");
-
-	/* send all data to this function  */
-	curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-
-	/* we pass our 'chunk' struct to the callback function */
-	//curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void*)&chunk);
-
-	/* some servers do not like requests that are made without a user-agent
-	   field, so we provide one */
-	curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-	curl_easy_setopt(curl_handle, CURLOPT_CAINFO, "cacert.pem");
-	curl_easy_setopt(curl_handle, CURLOPT_CAPATH, "cacert.pem");
-	curl_easy_setopt(curl_handle, CURLOPT_FOLLOWLOCATION, 1L);
-	//curl_easy_setopt(curl_handle, CURLOPT_VERBOSE, 1L);
-
-	/* get it! */
-	res = curl_easy_perform(curl_handle);
-
-	/* check for errors */
-	if (res != CURLE_OK) {
-		fprintf(stderr, "curl_easy_perform() failed: %s\n",
-			curl_easy_strerror(res));
-	}
-	else {
-		/*
-		 * Now, our chunk.memory points to a memory block that is chunk.size
-		 * bytes big and contains the remote file.
-		 *
-		 * Do something nice with it!
-		 */
-
-		printf("downloaded %d bytes\n", totalBytes);
+	for (int z = 0; z < allSamples.size(); z++) {
+		out.write(reinterpret_cast<char*>(&allSamples[z]), sizeof(int16_t));
 	}
 
-	/* cleanup curl stuff */
-	curl_easy_cleanup(curl_handle);	
+	out.close();
+	printf("Wrote file!\n");
 }
 
-int webm_test();
-int mp4_test();
+// ffmpeg -i test.wav -y -f s16le -ar 12000 -ac 1 - >\\.\pipe\MicBotPipe0
+// ffmpeg -i test.m4a -y -f s16le -ar 12000 -ac 1 - >\\.\pipe\MicBotPipe1
+// TODO: output raw pcm, not WAV
 
+float clampf(float val, float min, float max) {
+	if (val > max) {
+		return max;
+	}
+	else if (val < min) {
+		return min;
+	}
 
+	return val;
+}
+
+void pipe_test() {
+	for (int i = 0; i < MAX_CHANNELS; i++) {
+		g_pipes[i] = new PipeInputBuffer("MicBotPipe" + to_string(i), PIPE_BUFFER_SIZE);
+	}
+
+	int samplesPerPacket = g_sampling_rate / (1000/g_packet_delay);
+
+	int16_t* pipeBuffer = new int16_t[samplesPerPacket];
+	float* mixBuffer = new float[samplesPerPacket];
+
+	vector<int16_t> allSamples;
+
+	long long nextPacketMillis = getTimeMillis();
+
+	while (1) {
+		while (getTimeMillis() < nextPacketMillis) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+
+		nextPacketMillis += g_packet_delay;
+
+		memset(mixBuffer, 0, samplesPerPacket*sizeof(float));
+
+		bool wroteAnySamples = false;
+
+		for (int i = 0; i < MAX_CHANNELS; i++) {
+			if (g_pipes[i]->read((char*)pipeBuffer, samplesPerPacket * sizeof(int16_t))) {
+				// can't read yet
+				continue;
+			}
+
+			wroteAnySamples = true;
+
+			for (int k = 0; k < samplesPerPacket; k++) {
+				mixBuffer[k] += (float)pipeBuffer[k] / 32768.0f;
+			}
+		}
+
+		if (wroteAnySamples) {
+			for (int i = 0; i < samplesPerPacket; i++) {
+				int16_t clamped = clampf(mixBuffer[i], -1.0f, 1.0f) * 32767;
+				allSamples.push_back(clamped);
+			}
+
+			if (allSamples.size() > 12000 * 5) {
+				WriteOutputWav(allSamples);
+				allSamples.clear();
+			}
+		}
+
+		// TODO: encode
+	}
+}
 
 int main(int argc, const char **argv)
 {
-	//webm_test();
-	//curl_test();
-	//encode_test();
-	mp4_test();
-
-	curl_global_cleanup();
+	pipe_test();
 
 	return 0;
 }

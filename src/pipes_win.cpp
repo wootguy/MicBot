@@ -2,16 +2,16 @@
 #include <Windows.h>
 #include <vector>
 #include <map>
+#include <thread>
+#include <chrono>
 
 using namespace std;
 
 map<string, HANDLE> g_pipes;
 
-// ffmpeg -i file.mp3 -y -f wav - >\\.\pipe\Pipe
-
-std::string createInputPipe() {
+std::string createInputPipe(std::string id) {
     HANDLE hPipe;
-    string pipeName = "\\\\.\\pipe\\Pipe";
+    string pipeName = "\\\\.\\pipe\\" + id;
 
     hPipe = CreateNamedPipe(TEXT(pipeName.c_str()),
         PIPE_ACCESS_INBOUND,
@@ -31,8 +31,7 @@ std::string createInputPipe() {
     return pipeName;
 }
 
-
-void readPipe(string pipeName) {
+void readPipe(string pipeName, PipeInputBuffer* inputBuffer) {
     map<string, HANDLE>::const_iterator iter = g_pipes.find(pipeName);
 
     if (iter == g_pipes.end()) {
@@ -42,28 +41,49 @@ void readPipe(string pipeName) {
     HANDLE hPipe = iter->second;
 
     char buffer[1024];
-    DWORD dwRead;
+    vector<int16_t> allSamples;
 
-    printf("Try connect pipe\n");
     while (1) {
+        printf("Try connect pipe\n");
         if (ConnectNamedPipe(hPipe, NULL) != FALSE)   // wait for someone to connect to the pipe
         {
-            if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &dwRead, NULL) != FALSE)
-            {
-                /* add terminating zero */
-                buffer[dwRead] = '\0';
+            while (1) {
+                DWORD bytesRead;
 
-                /* do something with data in buffer */
-                printf("%s", buffer);
-            }
-            else {
-                printf("No data in pipe\n");
-            }
+                if (ReadFile(hPipe, buffer, sizeof(buffer), &bytesRead, NULL) != FALSE)
+                {
+                    size_t bytesLeftToWrite = bytesRead;
+                    size_t writePos = 0;
 
-            DisconnectNamedPipe(hPipe);
+                    int16_t* src = (int16_t*)buffer;
+                    for (int i = 0; i < bytesRead / 2; i++) {
+                        allSamples.push_back(src[i]);
+                    }
+
+                    while (bytesLeftToWrite) {
+                        size_t written = inputBuffer->write(buffer + writePos, bytesLeftToWrite);
+                        bytesLeftToWrite -= written;
+                        writePos += written;
+
+                        if (written) {
+                            //printf("Wrote %llu to input buffer\n", written);
+                        }
+                        else {
+                            //printf("input buffer not ready for writing yet\n");
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        }
+                    }
+                }
+                else {
+                    printf("No data in pipe\n");
+                    DisconnectNamedPipe(hPipe);
+                    break;
+                }
+            }
         }
         else {
             printf("Can't connect to pipe\n");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 }

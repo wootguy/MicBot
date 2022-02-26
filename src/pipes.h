@@ -1,6 +1,10 @@
+#pragma once
 #include <string>
+#include <mutex>
+#include "PipeInputBuffer.h"
 
-// create an input pipe and return its name
-std::string createInputPipe();
+// create an input pipe and return its os-specific name
+std::string createInputPipe(std::string id);
 
-void readPipe(std::string pipeName);
+// read data from pipe into a buffer which the main thread can read from safely
+void readPipe(std::string pipeName, PipeInputBuffer* inputBuffer);
