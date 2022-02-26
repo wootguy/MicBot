@@ -3,15 +3,20 @@
 #include <thread>
 
 enum BUFFER_STATUS {
-	PIB_FULL,  // input buffer is full and ready to be read
-	PIB_WRITE, // input buffer can be or is currently being written to by a pipe thread.
-	PIB_READ,  // input buffer is currently being read from the main thread. No writing allowed.
-	PIB_FLUSH, // input buffer can't be written to anymore. Reader should take whatever is left.
+	TIB_FULL,  // input buffer is full and ready to be read
+	TIB_WRITE, // input buffer can be or is currently being written to by a pipe thread.
+	TIB_READ,  // input buffer is currently being read from the main thread. No writing allowed.
+	TIB_FLUSH, // input buffer can't be written to anymore. Reader should take whatever is left.
+	TIB_FLUSHED, // reader took the last of the input data from the write buffer
+	TIB_FINISHED, // reader read the last of the flushed data
 };
 
 class ThreadInputBuffer {
 public:
+	std::string resourceName; // pipe or file name
+
 	ThreadInputBuffer(size_t bufferSize);
+	~ThreadInputBuffer();
 
 	// call from the main thread to read data from a pipe
 	// returns 0 on success, 1 for failure
@@ -28,8 +33,9 @@ public:
 
 	void startMp3InputThread(std::string fileName, int sampleRate);
 
+	bool isFinished(); // true if input thread was terminated
+
 private:
-	std::string resourceName; // pipe or file name
 	std::thread inputThread;
 
 	ThreadSafeInt status; // used to prevent multiple threads reading/writing to the writeBuffer

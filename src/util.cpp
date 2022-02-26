@@ -27,5 +27,5 @@ void WriteOutputWav(string fname, vector<int16_t>& allSamples) {
 	}
 
 	out.close();
-	printf("Wrote file!\n");
+	fprintf(stderr, "Wrote file!\n");
 }

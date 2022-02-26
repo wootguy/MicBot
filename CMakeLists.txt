@@ -13,6 +13,7 @@ set(SOURCE_FILES
 	src/ThreadSafeInt.h src/ThreadSafeInt.cpp
 	src/ThreadInputBuffer.h src/ThreadInputBuffer.cpp
 	src/SteamVoiceEncoder.h src/SteamVoiceEncoder.cpp
+	src/CommandQueue.h src/CommandQueue.cpp
 	src/stream_mp3.h src/stream_mp3.cpp
 	src/util.h src/util.cpp
 	src/crc32.h src/crc32.cpp
@@ -45,4 +46,7 @@ endif()
 
 target_link_libraries(${PROJECT_NAME} ${LINK_LIBS} ${OPTIONS})
 
-
+set_target_properties(${PROJECT_NAME} PROPERTIES
+                      RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_CURRENT_LIST_DIR}/lib
+                      RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_CURRENT_LIST_DIR}/lib
+)

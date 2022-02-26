@@ -9,7 +9,7 @@ using namespace std;
 
 map<string, HANDLE> g_pipes;
 
-std::string createInputPipe(std::string id) {
+HANDLE createInputPipe(std::string id) {
     HANDLE hPipe;
     string pipeName = "\\\\.\\pipe\\" + id;
 
@@ -23,27 +23,21 @@ std::string createInputPipe(std::string id) {
         NULL);
 
     if (hPipe == INVALID_HANDLE_VALUE) {
-        printf("Failed to create pipe\n");
+        fprintf(stderr, "Failed to create pipe\n");
         return "";
     }
 
     g_pipes.insert(make_pair(pipeName, hPipe));
-    return pipeName;
+    return hPipe;
 }
 
 void readPipe(string pipeName, ThreadInputBuffer* inputBuffer) {
-    map<string, HANDLE>::const_iterator iter = g_pipes.find(pipeName);
-
-    if (iter == g_pipes.end()) {
-        printf("Unknown pipe %s\n", pipeName.c_str());
-    }
-
-    HANDLE hPipe = iter->second;
+    HANDLE hPipe = createInputPipe(pipeName);
 
     char buffer[1024];
 
     while (1) {
-        printf("Try connect pipe\n");
+        fprintf(stderr, "Connecting pipe %s\n", pipeName.c_str());
         if (ConnectNamedPipe(hPipe, NULL) != FALSE)   // wait for someone to connect to the pipe
         {
             while (1) {
@@ -60,23 +54,23 @@ void readPipe(string pipeName, ThreadInputBuffer* inputBuffer) {
                         writePos += written;
 
                         if (written) {
-                            //printf("Wrote %llu to input buffer\n", written);
+                            //fprintf(stderr, "Wrote %llu to input buffer\n", written);
                         }
                         else {
-                            //printf("input buffer not ready for writing yet\n");
+                            //fprintf(stderr, "input buffer not ready for writing yet\n");
                             std::this_thread::sleep_for(std::chrono::milliseconds(1));
                         }
                     }
                 }
                 else {
-                    printf("No data in pipe\n");
+                    fprintf(stderr, "No data in pipe\n");
                     DisconnectNamedPipe(hPipe);
                     break;
                 }
             }
         }
         else {
-            printf("Can't connect to pipe\n");
+            fprintf(stderr, "Can't connect to pipe\n");
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }

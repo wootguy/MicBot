@@ -26,6 +26,8 @@ response_queue = queue.Queue()
 last_tcp_heartbeat = datetime.datetime.now()
 last_client_heartbeat = datetime.datetime.now()
 
+fsizeHackIdx = 0
+
 def tcp_heartbeat(socket):
 	global last_tcp_heartbeat
 	
@@ -128,7 +130,7 @@ def heartbeat(socket):
 		socket.sendto(b'dere', client_address)
 		last_heartbeat = datetime.datetime.now()
 		#print("heartbeat %s:%d" % client_address)
-		
+
 def send_packets_to_plugin(socket, all_packets, force_send):
 	global last_file_write
 	global min_time_between_writes
@@ -137,6 +139,7 @@ def send_packets_to_plugin(socket, all_packets, force_send):
 	global voice_data_file
 	global client_address
 	global response_queue
+	global fsizeHackIdx
 	
 	if len(all_packets) == 0:
 		return all_packets
@@ -158,7 +161,11 @@ def send_packets_to_plugin(socket, all_packets, force_send):
 				f.write(packet)
 				
 		if not response_queue.empty():
-			f.write('m' + response_queue.get())
+			f.write('m' + response_queue.get() + '\n')
+		
+		# random data so file size always changes (plugin compares size to check if there's new data)
+		f.write('z'*fsizeHackIdx + '\n')
+		fsizeHackIdx = (fsizeHackIdx + 1) % 8
 		
 		all_packets = all_packets[buffer_max:]
 		

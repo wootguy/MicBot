@@ -1,6 +1,7 @@
 #include "SteamVoiceEncoder.h"
 #include <iostream>
 #include <vector>
+#include <iomanip>
 #include "crc32.h"
 
 using namespace std;
@@ -18,7 +19,7 @@ SteamVoiceEncoder::SteamVoiceEncoder(int frameSize, int framesPerPacket, int sam
 	opus_encoder_ctl(encoder, OPUS_SET_BITRATE(bitrate));
 
 	if (err != OPUS_OK) {
-		printf("Failed to create opus encoder %d\n", err);
+		fprintf(stderr, "Failed to create opus encoder %d\n", err);
 	}
 
 	frameBuffer = new OpusFrame[framesPerPacket];
@@ -37,7 +38,7 @@ bool SteamVoiceEncoder::encode_opus_frame(int16_t* samples, OpusFrame& outFrame)
 	int length = opus_encode(encoder, samples, frameSize, outFrame.data, ENCODE_BUFFER_SIZE);
 
 	if (length < 0) {
-		printf("Failed to encode %d\n", length);
+		fprintf(stderr, "Failed to encode %d\n", length);
 		return false;
 	}
 
@@ -51,7 +52,7 @@ bool SteamVoiceEncoder::encode_opus_frame(int16_t* samples, OpusFrame& outFrame)
 int SteamVoiceEncoder::write_steam_voice_packet(int16_t* samples, int sampleLen) {
 
 	if (sampleLen % (frameSize * framesPerPacket) != 0) {
-		printf("write_steam_voice_packet requires exactly %d samples\n", sampleLen);
+		fprintf(stderr, "write_steam_voice_packet requires exactly %d samples\n", sampleLen);
 		return -1;
 	}
 
@@ -113,11 +114,17 @@ int SteamVoiceEncoder::write_steam_voice_packet(int16_t* samples, int sampleLen)
 		}
 	}
 
+	for (int i = 0; i < packet.size(); i++) {
+		//std::cout << (unsigned int)buffer[i] << " ";
+		std::cout << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)packet[i];
+	}
+	std::cout << std::endl;
+
 	//outFile << "},\n";
 
 	/*
 	if (packet.size() > 500) {
-		printf("TOO MUCH DATA %d\n", packet.size());
+		fprintf(stderr, "TOO MUCH DATA %d\n", packet.size());
 		return -1;
 	}
 	*/

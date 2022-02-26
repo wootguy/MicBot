@@ -17,7 +17,7 @@ int resamplePcm(int16_t* pcm_old, int16_t* pcm_new, int oldRate, int newRate, in
 	float t = 0;
 
 	if (newRate > oldRate) {
-		printf("Resampling to higher rate might have terrible quality!");
+		fprintf(stderr, "Resampling to higher rate might have terrible quality!");
 	}
 
 	for (int i = 0; i < numSamplesNew; i++) {
@@ -44,7 +44,7 @@ int mixStereoToMono(int16_t* pcm, int numSamples) {
 void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) {
 	FILE* file = fopen(fileName.c_str(), "rb");
 	if (!file) {
-		printf("Unable to open: %s\n", fileName.c_str());
+		fprintf(stderr, "Unable to open: %s\n", fileName.c_str());
 		return;
 	}
 
@@ -64,7 +64,7 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 
 	while (1) {
 		int readBytes = fread(buffer + readPos, 1, readSize, file);
-		if (readBytes == 0) {
+		if (readBytes == 0 && bufferLeft == 0) {
 			break;
 		}
 		bufferLeft += readBytes;
@@ -91,7 +91,7 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 		size_t bytesLeftToWrite = writeSamples * sizeof(int16_t);
 		size_t writePos = 0;		
 
-		//printf("Read %d file bytes, %d samples, %d frame bytes\n", readBytes, samples, bytesRead);
+		//fprintf(stderr, "Read %d file bytes, %d samples, %d frame bytes\n", readBytes, samples, bytesRead);
 
 		while (bytesLeftToWrite) {
 			size_t written = inputBuffer->write((char*)resampledPcm + writePos, bytesLeftToWrite);

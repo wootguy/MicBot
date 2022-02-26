@@ -10,10 +10,9 @@
 # pactl load-module module-sine frequency=1000
 # pactl unload-module module-sine (to stop it)
 
-import time, os, sys, queue, random, pafy, vlc, pyglet, datetime, socket, subprocess
+import time, os, sys, queue, random, pafy, datetime, socket, subprocess
 from threading import Thread
 from gtts import gTTS
-from pyglet.media import Player
 
 sven_root = '../../../..'
 csound_path = os.path.join(sven_root, 'svencoop_downloads/sound/twlz')
@@ -30,7 +29,8 @@ cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 
 #command_queue.put('w00tguy\\en\\100\\https://www.youtube.com/watch?v=zZdVwTjUtjg')
 #command_queue.put('w00tguy\\en\\80\\~test test test test test test test test test test test test test test')
-command_queue.put('w00tguy\\en\\80\\https://youtu.be/-zEJEdbZUP8')
+#command_queue.put('w00tguy\\en\\80\\https://youtu.be/-zEJEdbZUP8')
+#command_queue.put('w00tguy\\en\\80\\~testaroni')
 
 hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
@@ -43,6 +43,8 @@ reconnect_tcp = False
 
 server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
 resend_packets = 0 # send packets X extra times to help prevent lost packets while keeping latency down
+
+pipeIdx = 0
 
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
@@ -121,26 +123,6 @@ def load_all_chatsounds():
 	for line in file1.readlines():
 		g_chatsounds.append(line.split()[0])
 
-def is_any_sound_playing():
-	for player in g_media_players:
-		if player['player'].is_playing():
-			return True
-	
-	return len(g_tts_players) > 0
-
-def playsound_async(speaker, sound, pitch):
-	if speaker in g_tts_players:
-		if g_tts_players[speaker].playing:
-			g_tts_players[speaker].pause()
-		g_tts_players[speaker].delete()
-	
-	player = g_tts_players[speaker] = Player()
-	
-	source = pyglet.media.load(sound, streaming=False)
-	player.pitch = pitch
-	player.queue(source)
-	player.play()
-
 def format_time(seconds):
 	hours = int(seconds / (60*60))
 	
@@ -159,6 +141,7 @@ def playtube_async(url, offset, asker):
 	global g_media_players
 	global cached_video_urls
 	global send_queue
+	global pipeIdx
 	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
 	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
@@ -172,26 +155,26 @@ def playtube_async(url, offset, asker):
 			playurl = cached_video_urls[url]['url']
 			title = cached_video_urls[url]['title']
 		else:
-			print("New pafy")
+			#print("Fetch best audio " + url)
 			video = pafy.new(url)
-			print("Fetch best audio " + url)
 			best = video.getbestaudio()
 			playurl = best.url
 			title = video.title + "  [" + format_time(int(video.length)) + "]"
 			cached_video_urls[url] = {'url': playurl, 'title': title}
-			print("BEST URL: " + playurl)
+			#print("BEST URL: " + playurl)
 		
-		print("Create vlc instance")
-		Instance = vlc.Instance()
-		player = Instance.media_player_new()
-		media = Instance.media_new(playurl)
-		media.add_option('start-time=%d' % offset)
-		player.set_media(media)
-		if player.play() == -1:
-			raise Exception("Failed to play the video")
+		pipeName = '\\\\.\\pipe\\MicbotPipe%s' % pipeIdx
+		print("ffmpeg > %s" % pipeName)
 		
-		g_media_players.append({'player': player, 'message_sent': False, 'title': title, 'asker': asker})
-		print("Play offset %d: " % offset + title)
+		cmd = 'ffmpeg -hide_banner -loglevel error -y -i %s -f s16le -ar 12000 -ac 1 - >%s' % (playurl, pipeName)
+		print(cmd)
+		ffmpeg = subprocess.Popen(cmd.split(' '), shell=True)
+		pipeIdx = (pipeIdx+1) % 16
+		
+		os.system(cmd)
+		
+		#g_media_players.append({'player': player, 'message_sent': False, 'title': title, 'asker': asker})
+		#print("Play offset %d: " % offset + title)
 	except Exception as e:
 		print(e)
 		
@@ -201,7 +184,9 @@ def playtube_async(url, offset, asker):
 		t.start()
 		tts_id += 1
 
-def play_tts(speaker, text, id, lang, pitch, is_hidden):	
+def play_tts(speaker, text, id, lang, pitch, is_hidden):
+	global steam_voice
+	
 	# Language in which you want to convert
 	language = g_valid_langs[lang]['code']
 	tld = g_valid_langs[lang]['tld']
@@ -213,7 +198,6 @@ def play_tts(speaker, text, id, lang, pitch, is_hidden):
 	print("Translating %d" % id)
 	myobj = gTTS(text=text, tld=tld, lang=language, slow=False)
 	 
-	print("SAVE DA OBJECT")
 	# Saving the converted audio in a mp3 file named
 	# welcome
 	fname = 'tts/tts%d' % id + '.mp3'
@@ -226,27 +210,14 @@ def play_tts(speaker, text, id, lang, pitch, is_hidden):
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
 	
+	#steam_voice_cmd = 'play %s' % fname
 	
-	output = 'tts/tts%d.wav' % id
-	
-	print("ffmpeg adjust %d" % (id))
-	
-	vol = 500 if totalCaps > totalLower else 5
-	ffmpeg_cmd = 'ffmpeg -i %s -y -af loudnorm=-5:LRA=11:TP=-1.5 -filter:a volume=%s -f wav -acodec pcm_u8 -ar 22050 -' % (fname, vol)
-	ps = subprocess.Popen(ffmpeg_cmd.split(' '), stdout=subprocess.PIPE)
-	output = subprocess.check_output('aplay', stdin=ps.stdout)
-	print("now wait")
-	ps.wait()
-	#os.system(cmd)
+	steam_voice.stdin.write(fname + "\n")
 	 
 	print("Played %d" % id)
-	# Playing the converted file
-	#playsound_async(speaker, output, pitch)
 	
 	if is_hidden:
 		send_queue.put("~" + text)
-
-	os.remove(fname)
 
 def command_loop():
 	global our_addr
@@ -309,6 +280,7 @@ def command_loop():
 def transmit_voice():
 	global server_timeout
 	global resend_packets
+	global steam_voice
 	
 	udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 	udp_socket.bind(our_addr)
@@ -321,27 +293,25 @@ def transmit_voice():
 
 	sent_packets = []
 	sent_packets_first_id = 0 # packet id of the first packet in sent_packets
-
-	process_name = 'steam_voice.exe' if os.name == 'nt' else 'steam_voice'
-	p = subprocess.Popen(os.path.join('lib', process_name), stdout=subprocess.PIPE)
-	for line in iter(p.stdout.readline, ''):
+	
+	for line in iter(steam_voice.stdout.readline, ''):
+		line = line.strip()
+		
 		if not line:
 			time.sleep(0.1)
 			print("DELAY STDOUT")
-			
+
 		idBytes = packetId.to_bytes(2, 'big')
-		try:
-			packet = idBytes + bytes.fromhex(line.decode().strip())
-		
-			# The mic needs to always be recording so that there aren't extra gaps during the quiet/silent part of a song.
+		if line == "SILENCE":
+			# packets always need to be flowing so that there aren't extra gaps during the quiet/silent part of a song.
 			# but it's annoying to always show the voice icon even when nothing is playing.
 			# this special edit will tell the plugin to not send the voice packet.
-			if not is_any_sound_playing() and False:
-				dat = 'ff' if packetId % 8 > 4 else 'ffff' # hack to make sure _fromvoice.txt always changes size (so plugin knows it was updated)
-				packet = packet[:4] + bytes.fromhex(dat) # no packets are ever this small. Plugin will know to replace this with silence
-		except Exception as e:
-			print(e)
-			continue
+			
+			packet = idBytes + bytes.fromhex('ff') # no packets are ever this small. Plugin will know to replace this with silence
+			#print("Send silence %d" % packetId)
+		else:
+			packet = idBytes + bytes.fromhex(line)		
+			#print("Send %d" % len(packet))
 		
 		if server_addr:
 			udp_socket.sendto(packet, server_addr)
@@ -392,20 +362,34 @@ def transmit_voice():
 		if (time_since_last_heartbeat > server_timeout and server_addr):
 			print("Server isn't there anymore! Probably!!! Wait for reconnect....")
 			server_addr = None
-			
-					
-	p.stdout.close()
-	p.terminate()
+
+def steam_voice_stderr():
+	global steam_voice
 	
+	for line in iter(steam_voice.stderr.readline, ''):
+		line = line.strip()
+		if not line:
+			continue
+		print("[steam_voice] %s" % line)
+
+load_all_chatsounds()
+
+process_name = 'steam_voice.exe' if os.name == 'nt' else 'steam_voice'
+steam_voice = subprocess.Popen(os.path.join('lib', process_name),
+							   bufsize=1, universal_newlines=True,
+							   stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+
 t = Thread(target = command_loop, args =( ))
+t.daemon = True
+t.start()
+
+t = Thread(target = steam_voice_stderr, args =( ))
 t.daemon = True
 t.start()
 
 t = Thread(target = transmit_voice, args =( ))
 t.daemon = True
 t.start()
-
-load_all_chatsounds()
 
 while True:
 	wasplaying = len(g_media_players) > 0

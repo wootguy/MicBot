@@ -1,5 +1,4 @@
 class VoicePacket {
-	float time;
 	array<uint8> data;
 }
 
@@ -12,6 +11,11 @@ uint ideal_buffer_size = 12; // amount of packets to delay playback of. Higher =
 float sample_load_start = 0;
 int g_voice_ent_idx = 0;
 float file_check_interval = 0.02f;
+
+float g_playback_start_time = 0;
+float g_ideal_next_packet_time = 0;
+int g_packet_idx = 0;
+float g_packet_delay = 0.05f;
 
 // longer than this and python might overwrite what is currently being read
 // keep this in sync with server.py
@@ -107,15 +111,14 @@ void load_packets_from_file(File@ file, bool fastSend) {
 	if (line[0] == 'm') {
 		// server message, not a voice packet
 		handle_micbot_message(line.SubString(1));
+	} else if (line[0] == 'z') {
+		// random data to change the size of the file
 	} else {
-		uint16 timestamp = (char_to_nibble[ uint(line[0]) ] << 12) + (char_to_nibble[ uint(line[1]) ] << 8) + 
-					   (char_to_nibble[ uint(line[2]) ] << 4) + char_to_nibble[ uint(line[3]) ];
-		uint len = (line.Length()-4)/2;
+		uint len = line.Length()/2;
 
 		VoicePacket packet;
-		packet.time = timestamp / 1000.0f;
 		
-		for (uint i = 4; i < line.Length()-1; i += 2) {
+		for (uint i = 0; i < line.Length()-1; i += 2) {
 			uint n1 = char_to_nibble[ uint(line[i]) ];
 			uint n2 = char_to_nibble[ uint(line[i + 1]) ];
 			packet.data.insertLast((n1 << 4) + n2);
@@ -147,6 +150,10 @@ void play_samples(bool buffering) {
 		if (!buffering) {
 			send_debug_message("[MicBot] Buffering voice packets...\n");
 		}
+		
+		g_playback_start_time = g_EngineFuncs.Time();
+		g_ideal_next_packet_time = g_playback_start_time + g_packet_idx*g_packet_delay;
+		g_packet_idx = 1;
 		
 		send_debug_message("Buffering voice packets " + g_packet_stream.size() + " / " + ideal_buffer_size + "\n");
 		g_Scheduler.SetTimeout("play_samples", 0.1f, true);
@@ -204,6 +211,7 @@ void play_samples(bool buffering) {
 	
 	// try to keep buffer near ideal size
 	string logSpecial = silentPacket ? "silence " : "";
+	/*
 	if (g_packet_stream.size() > ideal_buffer_size*2) {
 		g_clock_adjust += 0.05f;
 		logSpecial = "Speedup 0.05";
@@ -220,32 +228,39 @@ void play_samples(bool buffering) {
 		g_clock_adjust -= 0.002f;
 		logSpecial = "Slowdown 0.002";
 	}
+	*/
 	
-	float serverTime = g_EngineFuncs.Time() + g_clock_adjust; 
-	float clockDiff = serverTime - packet.time;				  // time difference between server clock and packet clock
-	float delayNeeded = nextPacket.time - serverTime; // time the next packet should be sent
-	float delayNext = delayNeeded - g_Engine.frametime; // how much to delay with the scheduler, accounting for server fps
+	float serverTime = g_EngineFuncs.Time();
+	float errorTime = g_ideal_next_packet_time - serverTime;
 	
-	send_debug_message("Sync: " + formatFloat(packet.time, "", 6, 3)
-			+ " " + formatFloat(serverTime, "", 6, 3)
-			+ " " + formatFloat(clockDiff, "+", 3, 3)
-			+ "   Delay: " + formatFloat(delayNeeded, "", 6, 4)
+	g_ideal_next_packet_time = g_playback_start_time + g_packet_idx*(g_packet_delay - 0.0001f); // slightly fast to prevent mic getting quiet/choppy
+	float nextDelay = (g_ideal_next_packet_time - serverTime) - g_Engine.frametime;
+	
+	send_debug_message("Sync: " + formatFloat(serverTime, "", 6, 3)
+			+ " " + formatFloat(g_ideal_next_packet_time, "", 6, 3)
+			+ " " + formatFloat(errorTime, "+", 3, 3)
+			+ "   Delay: " + formatFloat(nextDelay, "", 6, 4)
 			+ " " + formatFloat(g_Engine.frametime, "", 6, 4)
-			+ " " + formatFloat(delayNext, "+", 6, 4)
 			+ "   Sz: " + formatInt(packet.data.size(), "", 3)
 			+ "   Buff: " + formatInt(g_packet_stream.size(), "", 2) + " / " + ideal_buffer_size +
 			"  " + logSpecial + "\n");
 	
-	if (abs(clockDiff) > 0.5f or delayNext > 0.5f) {
-		println("Syncing server time with mic packet time by " + -clockDiff);
-		g_clock_adjust = packet.time - g_EngineFuncs.Time();
-		if (delayNext > 1.0f)
-			delayNext = 0;
+	if (nextDelay > 0.5f) {
+		nextDelay = 0.5f;
 	}
 	
-	if (delayNext < 0) {
+	if (abs(errorTime) > 1.0f) {
+		g_playback_start_time = g_EngineFuncs.Time();
+		g_ideal_next_packet_time = g_playback_start_time + g_packet_idx*g_packet_delay;
+		g_packet_idx = 1;
+		println("Syncing packet time");
+	}
+	
+	g_packet_idx++;
+	
+	if (nextDelay < 0) {
 		play_samples(false);
 	} else {
-		g_Scheduler.SetTimeout("play_samples", delayNext, false);
+		g_Scheduler.SetTimeout("play_samples", nextDelay, false);
 	}	
 }

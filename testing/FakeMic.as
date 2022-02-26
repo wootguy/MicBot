@@ -1,10 +1,10 @@
-#include "replay_32"
+#include "replay"
 
 void print(string text) { g_Game.AlertMessage( at_console, text); }
 void println(string text) { print(text + "\n"); }
 
 array<uint32> crc32_table;
-float g_packet_delay = 0.08f;
+float g_packet_delay = 0.02f;
 
 
 void PluginInit()

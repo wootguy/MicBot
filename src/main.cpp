@@ -10,14 +10,14 @@
 #include "SteamVoiceEncoder.h"
 #include "crc32.h"
 #include "util.h"
-#include "stream_mp3.h"
+#include "CommandQueue.h"
 
 using namespace std;
 using std::chrono::milliseconds;
 using std::chrono::duration_cast;
 using std::chrono::system_clock;
 
-#define MAX_CHANNELS 4
+#define MAX_CHANNELS 16
 #define PIPE_BUFFER_SIZE 16384
 
 long long getTimeMillis() {
@@ -58,7 +58,7 @@ void getValidFrameConfigs() {
 
 		for (int r = 0; r < sampleRateCount; r++) {
 			int sampleRate = sampleRates[r];
-			printf("\n");
+			fprintf(stderr, "\n");
 			for (int i = 0; i < frameDurationCount; i++) {
 				int frameSize = ((sampleRate / 1000) * frameDurations[i]) + 0.5f;
 
@@ -76,7 +76,7 @@ void getValidFrameConfigs() {
 						int sz = encoder.write_steam_voice_packet(randomSamples + i, samplesPerPacket);
 
 						if (sz == -1) {
-							printf("Failed to encode\n");
+							fprintf(stderr, "Failed to encode\n");
 						}
 						if (sz > maxPacketSize) {
 							maxPacketSize = sz;
@@ -87,11 +87,11 @@ void getValidFrameConfigs() {
 					}
 
 					if (maxPacketSize == 0) {
-						printf("uhhh\n");
+						fprintf(stderr, "uhhh\n");
 					}
 
 					if (maxPacketSize <= 500) {
-						printf("Bitrate: %d, SampleRate: %d, Frames %d x %d, MaxSz: %d, delay: %.3f, frameDur: %.1f\n",
+						fprintf(stderr, "Bitrate: %d, SampleRate: %d, Frames %d x %d, MaxSz: %d, delay: %.3f, frameDur: %.1f\n",
 							bitrate, sampleRate, frameSize, framesPerPacket, maxPacketSize, delay, frameDurations[i]);
 					}
 				}
@@ -110,12 +110,12 @@ void pipe_test() {
 	int samplesPerPacket = frameSize*framesPerPacket;
 	int opusBitrate = 32000; // 32khz = steam default
 
-	printf("Sampling rate     : %d Hz\n", sampleRate);
-	printf("Frame size        : %d samples\n", frameSize);
-	printf("Frames per packet : %d\n", framesPerPacket);
-	printf("Samples per packet: %d\n", samplesPerPacket);
-	printf("Packet delay      : %d ms\n", packetDelay);
-	printf("Opus bitrate      : %d bps\n", opusBitrate);
+	fprintf(stderr, "Sampling rate     : %d Hz\n", sampleRate);
+	fprintf(stderr, "Frame size        : %d samples\n", frameSize);
+	fprintf(stderr, "Frames per packet : %d\n", framesPerPacket);
+	fprintf(stderr, "Samples per packet: %d\n", samplesPerPacket);
+	fprintf(stderr, "Packet delay      : %d ms\n", packetDelay);
+	fprintf(stderr, "Opus bitrate      : %d bps\n", opusBitrate);
 
 	//getValidFrameConfigs();
 
@@ -134,16 +134,15 @@ void pipe_test() {
 		inputStreams.push_back(stream);
 	}
 
-	ThreadInputBuffer* mp3Input = new ThreadInputBuffer(PIPE_BUFFER_SIZE);
-	mp3Input->startMp3InputThread("ooga.mp3", sampleRate);
-	inputStreams.push_back(mp3Input);
-
 	vector<int16_t> allSamples;
 
 	int packetCount = 0;
 
+	CommandQueue commands;
+	commands.putCommand("../tts/tts0.mp3");
+
 	while (1) {
-		while (getTimeMillis() < nextPacketMillis && false) {
+		while (getTimeMillis() < nextPacketMillis) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 
@@ -151,22 +150,32 @@ void pipe_test() {
 
 		memset(mixBuffer, 0, samplesPerPacket*sizeof(float));
 		
-		bool isAnythingPlaying = false;
+		vector<ThreadInputBuffer*> newStreams;
+
+		int activeStreamds = 0;
 		for (int i = 0; i < inputStreams.size(); i++) {
+			if (inputStreams[i]->isFinished()) {
+				fprintf(stderr, "Finished %s\n", inputStreams[i]->resourceName.c_str());
+				delete inputStreams[i];
+				continue;
+			}
+
+			newStreams.push_back(inputStreams[i]);
+
 			if (inputStreams[i]->read((char*)inBuffer, samplesPerPacket * sizeof(int16_t))) {
 				// can't read yet
 				continue;
 			}
 
-			isAnythingPlaying = true;
-
+			activeStreamds++;
+			// ../tts/tts0.mp3
 			for (int k = 0; k < samplesPerPacket; k++) {
 				mixBuffer[k] += (float)inBuffer[k] / 32768.0f;
 			}
 		}
 
-		if (isAnythingPlaying) {
-			//printf("Mixed %d samples\n", samplesPerPacket);
+		if (activeStreamds) {
+			//fprintf(stderr, "Mixed %d samples from %d streams\n", samplesPerPacket, activeStreamds);
 
 			for (int k = 0; k < samplesPerPacket; k++) {
 				outputBuffer[k] = clampf(mixBuffer[k], -1.0f, 1.0f) * 32767.0f;
@@ -174,15 +183,30 @@ void pipe_test() {
 			}
 
 			encoder.write_steam_voice_packet(outputBuffer, samplesPerPacket);
-			
-			if (allSamples.size() > 44100 * 4 * 2) {
+		}
+		else {
+			//fprintf(stderr, "No active streamds\n");			
+			printf("SILENCE\n");
+			/*
+			if (allSamples.size()) {
 				WriteOutputWav("mixer.wav", allSamples);
-				printf("Wrote test wav\n");
+				printf("BOKAY");
 			}
+			*/
+		}
+		fflush(stdout);
 
-			if (packetCount++ > 500) {
-				encoder.finishTestFile();
-				printf("Wrote test file\n");
+		inputStreams = newStreams; // remove any finished streamds
+		//fprintf(stderr, "Total streams %d\n", inputStreams.size());
+
+		while (commands.hasCommand()) {
+			string command = commands.getNextCommand();
+
+			if (command.find(".mp3") != string::npos) {
+				ThreadInputBuffer* mp3Input = new ThreadInputBuffer(PIPE_BUFFER_SIZE);
+				mp3Input->startMp3InputThread(command, sampleRate);
+				inputStreams.push_back(mp3Input);
+				fprintf(stderr, "Play mp3: %s\n", command.c_str());
 			}
 		}
 	}
