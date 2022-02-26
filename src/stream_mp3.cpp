@@ -88,21 +88,7 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 		//int writeSamples = samples;
 		//memcpy(resampledPcm, pcm, writeSamples*sizeof(int16_t));
 
-		size_t bytesLeftToWrite = writeSamples * sizeof(int16_t);
-		size_t writePos = 0;		
-
-		//fprintf(stderr, "Read %d file bytes, %d samples, %d frame bytes\n", readBytes, samples, bytesRead);
-
-		while (bytesLeftToWrite) {
-			size_t written = inputBuffer->write((char*)resampledPcm + writePos, bytesLeftToWrite);
-			bytesLeftToWrite -= written;
-			writePos += written;
-
-			if (!written) {
-				// buffer not ready for writing yet
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-			}
-		}
+		inputBuffer->writeAll((char*)resampledPcm, writeSamples * sizeof(int16_t));
 	}
 	
 	inputBuffer->flush();

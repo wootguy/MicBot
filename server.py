@@ -3,10 +3,10 @@ from threading import Thread
 
 # "client" that generates the voice data
 #hostname = '47.157.183.178' # twlz
-hostname = '192.168.254.158' # woop pc
+#hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
 #hostname = '192.168.254.110' # Linux VM
-#hostname = '107.191.105.136' # VPS
+hostname = '107.191.105.136' # VPS
 hostport = 1337
 client_address = (hostname, hostport)
 
@@ -158,6 +158,7 @@ def send_packets_to_plugin(socket, all_packets, force_send):
 				lost += 1
 				f.write('00\n')
 			else:
+				#print("Wrote %d" % len(packet))
 				f.write(packet)
 				
 		if not response_queue.empty():
@@ -172,7 +173,7 @@ def send_packets_to_plugin(socket, all_packets, force_send):
 		still_missing = 0
 		for idx, packet in enumerate(all_packets):
 			if type(packet) is int:
-				#socket.sendto(packet.to_bytes(2, 'big'), client_address)
+				socket.sendto(packet.to_bytes(2, 'big'), client_address)
 				still_missing += 1
 				#print("  Asked to resend %d" % (packet))
 				
@@ -252,7 +253,7 @@ def receive_voice_data():
 			#print("Expected %d but got %d" % (expectedPacketId, packetId))
 			for x in range(expectedPacketId, packetId):
 				all_packets.append(x)
-				#udp_socket.sendto(x.to_bytes(2, 'big'), client_address)
+				udp_socket.sendto(x.to_bytes(2, 'big'), client_address)
 				#print("  Asked to resend %d" % x)
 				
 			expectedPacketId = packetId + 1

@@ -1,4 +1,5 @@
-#include <pipes.h>
+#ifdef WIN32
+#include "pipes.h"
 #include <Windows.h>
 #include <vector>
 #include <map>
@@ -45,22 +46,7 @@ void readPipe(string pipeName, ThreadInputBuffer* inputBuffer) {
 
                 if (ReadFile(hPipe, buffer, sizeof(buffer), &bytesRead, NULL) != FALSE)
                 {
-                    size_t bytesLeftToWrite = bytesRead;
-                    size_t writePos = 0;
-
-                    while (bytesLeftToWrite) {
-                        size_t written = inputBuffer->write(buffer + writePos, bytesLeftToWrite);
-                        bytesLeftToWrite -= written;
-                        writePos += written;
-
-                        if (written) {
-                            //fprintf(stderr, "Wrote %llu to input buffer\n", written);
-                        }
-                        else {
-                            //fprintf(stderr, "input buffer not ready for writing yet\n");
-                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                        }
-                    }
+                    inputBuffer->writeAll(buffer, bytesRead);
                 }
                 else {
                     fprintf(stderr, "No data in pipe\n");
@@ -75,3 +61,5 @@ void readPipe(string pipeName, ThreadInputBuffer* inputBuffer) {
         }
     }
 }
+
+#endif

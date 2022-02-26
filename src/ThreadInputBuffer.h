@@ -26,6 +26,9 @@ public:
 	// returns bytes that were actually written
 	size_t write(char* inputBuffer, size_t inputSize);
 
+	// like write but will block if the write can't complete yet
+	void writeAll(char* inputBuffer, size_t inputSize);
+
 	// finish a write before the buffer is full
 	void flush();
 

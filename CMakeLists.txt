@@ -7,9 +7,9 @@ endif()
 
 project(steam_voice)
 
-set(SOURCE_FILES 
+set(SOURCE_FILES
     src/main.cpp
-	src/pipes.h src/pipes_win.cpp
+	src/pipes.h src/pipes_win.cpp src/pipes_linux.cpp
 	src/ThreadSafeInt.h src/ThreadSafeInt.cpp
 	src/ThreadInputBuffer.h src/ThreadInputBuffer.cpp
 	src/SteamVoiceEncoder.h src/SteamVoiceEncoder.cpp
@@ -33,7 +33,7 @@ else()
     set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
     set(CMAKE_CXX_FLAGS_RELEASE "-Os -fno-exceptions -w -Wfatal-errors")
 
-    #set(LINK_LIBS)
+    set(LINK_LIBS -lopus -lpthread)
     set(LINK_OPTIONS -R .) # load libraries from the same directory as the program
 endif()
 

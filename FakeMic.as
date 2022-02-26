@@ -7,7 +7,7 @@ float g_clock_adjust = 0; // adjustment made to sync the server clock with the p
 
 const string VOICE_FILE = "scripts/plugins/store/_fromvoice.txt";
 uint last_file_size = 0;
-uint ideal_buffer_size = 12; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
+uint ideal_buffer_size = 8; // amount of packets to delay playback of. Higher = more latency + bad connection tolerance
 float sample_load_start = 0;
 int g_voice_ent_idx = 0;
 float file_check_interval = 0.02f;
@@ -146,7 +146,7 @@ void load_packets_from_file(File@ file, bool fastSend) {
 }
 
 void play_samples(bool buffering) {
-	if (g_packet_stream.size() < 2 or (buffering and g_packet_stream.size() < ideal_buffer_size)) {
+	if (g_packet_stream.size() < 1 or (buffering and g_packet_stream.size() < ideal_buffer_size)) {
 		if (!buffering) {
 			send_debug_message("[MicBot] Buffering voice packets...\n");
 		}
@@ -194,41 +194,18 @@ void play_samples(bool buffering) {
 		}
 	}
 	
-	VoicePacket nextPacket = g_packet_stream[0];
-	
-	while (nextPacket.data.size() == 0) {
-		// lost packet
-		g_packet_stream.removeAt(0);
-		println("Lost packet");
-		
-		if (g_packet_stream.size() < 2) {
-			play_samples(true); // time to buffer more packets
-			return; 
-		}
-		
-		nextPacket = g_packet_stream[0];
-	}
-	
 	// try to keep buffer near ideal size
 	string logSpecial = silentPacket ? "silence " : "";
-	/*
-	if (g_packet_stream.size() > ideal_buffer_size*2) {
-		g_clock_adjust += 0.05f;
+	if (int(g_packet_stream.size()) > ideal_buffer_size*1.2) {
+		g_playback_start_time -= 0.05f;
 		logSpecial = "Speedup 0.05";
 	} else if (g_packet_stream.size() > ideal_buffer_size) {
-		g_clock_adjust += 0.01f;
-		logSpecial = "Speedup 0.01";
-	} else if (g_packet_stream.size() >= ideal_buffer_size) {
-		g_clock_adjust += 0.002f;
-		logSpecial = "Speedup 0.002";
-	} else if (g_packet_stream.size() < 4) {
-		g_clock_adjust -= 0.01f;
-		logSpecial = "Slowdown 0.01";
-	} else if (g_packet_stream.size() < ideal_buffer_size / 2) {
-		g_clock_adjust -= 0.002f;
-		logSpecial = "Slowdown 0.002";
+		g_playback_start_time -= 0.001f;
+		logSpecial = "Speedup 0.001";
+	} else if (g_packet_stream.size() < 3) {
+		g_playback_start_time += 0.001f;
+		logSpecial = "Slowdown 0.001";
 	}
-	*/
 	
 	float serverTime = g_EngineFuncs.Time();
 	float errorTime = g_ideal_next_packet_time - serverTime;

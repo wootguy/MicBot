@@ -32,10 +32,10 @@ cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 #command_queue.put('w00tguy\\en\\80\\https://youtu.be/-zEJEdbZUP8')
 #command_queue.put('w00tguy\\en\\80\\~testaroni')
 
-hostname = '192.168.254.158' # woop pc
+#hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
 #hostname = '192.168.254.110' # Linux VM
-#hostname = '107.191.105.136' # VPS
+hostname = '107.191.105.136' # VPS
 hostport = 1337
 our_addr = (hostname, hostport)
 
@@ -163,8 +163,12 @@ def playtube_async(url, offset, asker):
 			cached_video_urls[url] = {'url': playurl, 'title': title}
 			#print("BEST URL: " + playurl)
 		
-		pipeName = '\\\\.\\pipe\\MicbotPipe%s' % pipeIdx
+		pipePrefix = '\\\\.\\pipe\\' if os.name == 'nt' else ''
+		pipeName = '%sMicBotPipe%s' % (pipePrefix, pipeIdx)
 		print("ffmpeg > %s" % pipeName)
+		
+		if not os.name == 'nt':
+			playurl = "'" + playurl + "'"
 		
 		cmd = 'ffmpeg -hide_banner -loglevel error -y -i %s -f s16le -ar 12000 -ac 1 - >%s' % (playurl, pipeName)
 		print(cmd)
@@ -308,10 +312,10 @@ def transmit_voice():
 			# this special edit will tell the plugin to not send the voice packet.
 			
 			packet = idBytes + bytes.fromhex('ff') # no packets are ever this small. Plugin will know to replace this with silence
-			#print("Send silence %d" % packetId)
+			print("Send %d (silent)" % packetId)
 		else:
 			packet = idBytes + bytes.fromhex(line)		
-			#print("Send %d" % len(packet))
+			print("Send %d (%d bytes)" % (packetId, len(packet)))
 		
 		if server_addr:
 			udp_socket.sendto(packet, server_addr)

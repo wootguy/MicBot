@@ -11,6 +11,7 @@
 #include "crc32.h"
 #include "util.h"
 #include "CommandQueue.h"
+#include <cstring>
 
 using namespace std;
 using std::chrono::milliseconds;
@@ -148,6 +149,13 @@ void pipe_test() {
 
 		nextPacketMillis += packetDelay;
 
+		// the plugin plays packets 0.1ms faster than normal because otherwise the mic
+		// starts to cut out after a minute or so. The packets should be generated
+		// slightly faster too so that the plugin doesn't slowly deplete, causing a gap once empty.
+		if (packetCount++ % 10 == 0) {
+			nextPacketMillis -= 1;
+		}
+
 		memset(mixBuffer, 0, samplesPerPacket*sizeof(float));
 		
 		vector<ThreadInputBuffer*> newStreams;
@@ -179,7 +187,7 @@ void pipe_test() {
 
 			for (int k = 0; k < samplesPerPacket; k++) {
 				outputBuffer[k] = clampf(mixBuffer[k], -1.0f, 1.0f) * 32767.0f;
-				allSamples.push_back(outputBuffer[k]);
+				//allSamples.push_back(outputBuffer[k]);
 			}
 
 			encoder.write_steam_voice_packet(outputBuffer, samplesPerPacket);

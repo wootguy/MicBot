@@ -115,7 +115,6 @@ int SteamVoiceEncoder::write_steam_voice_packet(int16_t* samples, int sampleLen)
 	}
 
 	for (int i = 0; i < packet.size(); i++) {
-		//std::cout << (unsigned int)buffer[i] << " ";
 		std::cout << std::setfill('0') << std::setw(2) << std::hex << (unsigned int)packet[i];
 	}
 	std::cout << std::endl;

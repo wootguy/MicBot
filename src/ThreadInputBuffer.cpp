@@ -2,6 +2,7 @@
 #include "pipes.h"
 #include "stream_mp3.h"
 #include <thread>
+#include <cstring>
 
 using namespace std;
 
@@ -85,6 +86,26 @@ size_t ThreadInputBuffer::write(char* inputBuffer, size_t inputSize)
 	}
 
 	return canWrite;
+}
+
+void ThreadInputBuffer::writeAll(char* inputBuffer, size_t inputSize)
+{
+	size_t bytesLeftToWrite = inputSize;
+	size_t inputOffset = 0;
+
+	while (bytesLeftToWrite) {
+		size_t written = write(inputBuffer + inputOffset, bytesLeftToWrite);
+		bytesLeftToWrite -= written;
+		inputOffset += written;
+
+		if (written) {
+			//fprintf(stderr, "Wrote %llu to input buffer\n", written);
+		}
+		else {
+			//fprintf(stderr, "input buffer not ready for writing yet\n");
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	}
 }
 
 void ThreadInputBuffer::flush()
