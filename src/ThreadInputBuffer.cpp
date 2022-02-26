@@ -1,10 +1,11 @@
-#include "PipeInputBuffer.h"
+#include "ThreadInputBuffer.h"
 #include "pipes.h"
+#include "stream_mp3.h"
 #include <thread>
 
 using namespace std;
 
-PipeInputBuffer::PipeInputBuffer(string pipeName, size_t bufferSize)
+ThreadInputBuffer::ThreadInputBuffer(size_t bufferSize)
 {	
 	this->bufferSize = bufferSize;
 	this->writePos = 0;
@@ -12,12 +13,9 @@ PipeInputBuffer::PipeInputBuffer(string pipeName, size_t bufferSize)
 	this->status.setValue(PIB_WRITE);
 	writeBuffer = new char[bufferSize];
 	readBuffer = new char[bufferSize];
-
-	this->pipeName = createInputPipe(pipeName);
-	this->inputThread = thread(readPipe, this->pipeName, this);
 }
 
-int PipeInputBuffer::read(char* outputBuffer, size_t readSize)
+int ThreadInputBuffer::read(char* outputBuffer, size_t readSize)
 {
 	size_t canRead = ::min(bufferSize - readPos, readSize);
 
@@ -31,7 +29,7 @@ int PipeInputBuffer::read(char* outputBuffer, size_t readSize)
 		return 0;
 	}
 
-	if (status.getValue() != PIB_FULL) {
+	if (status.getValue() != PIB_FULL && status.getValue() != PIB_FLUSH) {
 		// need to grab input from write buffer, but can't because it's currently being written
 		return -2;
 	}
@@ -51,7 +49,7 @@ int PipeInputBuffer::read(char* outputBuffer, size_t readSize)
 	return 0;
 }
 
-size_t PipeInputBuffer::write(char* inputBuffer, size_t inputSize)
+size_t ThreadInputBuffer::write(char* inputBuffer, size_t inputSize)
 {
 	if (status.getValue() != PIB_WRITE) {
 		return 0;
@@ -68,4 +66,24 @@ size_t PipeInputBuffer::write(char* inputBuffer, size_t inputSize)
 	}
 
 	return canWrite;
+}
+
+void ThreadInputBuffer::flush()
+{
+	if (status.getValue() == PIB_WRITE) {
+		memset(writeBuffer + writePos, 0, bufferSize - writePos);
+		status.setValue(PIB_FLUSH);
+	}
+}
+
+void ThreadInputBuffer::startPipeInputThread(std::string pipeName)
+{
+	this->resourceName = createInputPipe(pipeName);
+	this->inputThread = thread(readPipe, this->resourceName, this);
+}
+
+void ThreadInputBuffer::startMp3InputThread(std::string fileName, int sampleRate)
+{
+	this->resourceName = fileName;
+	this->inputThread = thread(streamMp3, fileName, this, sampleRate);
 }

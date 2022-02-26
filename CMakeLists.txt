@@ -11,8 +11,10 @@ set(SOURCE_FILES
     src/main.cpp
 	src/pipes.h src/pipes_win.cpp
 	src/ThreadSafeInt.h src/ThreadSafeInt.cpp
-	src/PipeInputBuffer.h src/PipeInputBuffer.cpp
+	src/ThreadInputBuffer.h src/ThreadInputBuffer.cpp
 	src/SteamVoiceEncoder.h src/SteamVoiceEncoder.cpp
+	src/stream_mp3.h src/stream_mp3.cpp
+	src/util.h src/util.cpp
 	src/crc32.h src/crc32.cpp
 )
 

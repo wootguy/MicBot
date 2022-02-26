@@ -6,9 +6,11 @@
 #include <chrono>
 #include <iostream>
 #include "pipes.h"
-#include "PipeInputBuffer.h"
+#include "ThreadInputBuffer.h"
 #include "SteamVoiceEncoder.h"
 #include "crc32.h"
+#include "util.h"
+#include "stream_mp3.h"
 
 using namespace std;
 using std::chrono::milliseconds;
@@ -25,17 +27,6 @@ long long getTimeMillis() {
 // ffmpeg -i test.wav -y -f s16le -ar 12000 -ac 1 - >\\.\pipe\MicBotPipe0
 // ffmpeg -i test.m4a -y -f s16le -ar 12000 -ac 1 - >\\.\pipe\MicBotPipe1
 // TODO: output raw pcm, not WAV
-
-float clampf(float val, float min, float max) {
-	if (val > max) {
-		return max;
-	}
-	else if (val < min) {
-		return min;
-	}
-
-	return val;
-}
 
 // Best packet delays:
 //     Bitrate: 16000, SampleRate: 12000, Frames 1200 x 2, MaxSz: 478, delay: 0.200
@@ -100,7 +91,8 @@ void getValidFrameConfigs() {
 					}
 
 					if (maxPacketSize <= 500) {
-						printf("Bitrate: %d, SampleRate: %d, Frames %d x %d, MaxSz: %d, delay: %.3f\n", bitrate, sampleRate, frameSize, framesPerPacket, maxPacketSize, delay);
+						printf("Bitrate: %d, SampleRate: %d, Frames %d x %d, MaxSz: %d, delay: %.3f, frameDur: %.1f\n",
+							bitrate, sampleRate, frameSize, framesPerPacket, maxPacketSize, delay, frameDurations[i]);
 					}
 				}
 			}
@@ -109,11 +101,11 @@ void getValidFrameConfigs() {
 }
 
 void pipe_test() {
-	PipeInputBuffer* g_pipes[MAX_CHANNELS];
+	vector<ThreadInputBuffer*> inputStreams;
 	int sampleRate = 12000; // opus allows: 8, 12, 16, 24, 48 khz
-	int frameDuration = 30; // opus allows: 2.5, 5, 10, 20, 40, 60, 80, 100, 120
+	int frameDuration = 10; // opus allows: 2.5, 5, 10, 20, 40, 60, 80, 100, 120
 	int frameSize = (sampleRate / 1000) * frameDuration; // samples per frame
-	int framesPerPacket = 2; // 2 = minimum amount of frames for sven to accept packet
+	int framesPerPacket = 5; // 2 = minimum amount of frames for sven to accept packet
 	int packetDelay = frameDuration*framesPerPacket; // millesconds between output packets
 	int samplesPerPacket = frameSize*framesPerPacket;
 	int opusBitrate = 32000; // 32khz = steam default
@@ -125,24 +117,33 @@ void pipe_test() {
 	printf("Packet delay      : %d ms\n", packetDelay);
 	printf("Opus bitrate      : %d bps\n", opusBitrate);
 
-	getValidFrameConfigs();
+	//getValidFrameConfigs();
 
 	crc32_init();
 	SteamVoiceEncoder encoder(frameSize, framesPerPacket, sampleRate, opusBitrate);
 	
-	int16_t* pipeBuffer = new int16_t[samplesPerPacket];
+	int16_t* inBuffer = new int16_t[samplesPerPacket];
 	float* mixBuffer = new float[samplesPerPacket];
 	int16_t* outputBuffer = new int16_t[samplesPerPacket];
 	long long nextPacketMillis = getTimeMillis();
 
 	for (int i = 0; i < MAX_CHANNELS; i++) {
-		g_pipes[i] = new PipeInputBuffer("MicBotPipe" + to_string(i), PIPE_BUFFER_SIZE);
+		ThreadInputBuffer* stream = new ThreadInputBuffer(PIPE_BUFFER_SIZE);
+		stream->startPipeInputThread("MicBotPipe" + to_string(i));
+
+		inputStreams.push_back(stream);
 	}
+
+	ThreadInputBuffer* mp3Input = new ThreadInputBuffer(PIPE_BUFFER_SIZE);
+	mp3Input->startMp3InputThread("ooga.mp3", sampleRate);
+	inputStreams.push_back(mp3Input);
+
+	vector<int16_t> allSamples;
 
 	int packetCount = 0;
 
 	while (1) {
-		while (getTimeMillis() < nextPacketMillis) {
+		while (getTimeMillis() < nextPacketMillis && false) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 
@@ -151,8 +152,8 @@ void pipe_test() {
 		memset(mixBuffer, 0, samplesPerPacket*sizeof(float));
 		
 		bool isAnythingPlaying = false;
-		for (int i = 0; i < MAX_CHANNELS; i++) {
-			if (g_pipes[i]->read((char*)pipeBuffer, samplesPerPacket * sizeof(int16_t))) {
+		for (int i = 0; i < inputStreams.size(); i++) {
+			if (inputStreams[i]->read((char*)inBuffer, samplesPerPacket * sizeof(int16_t))) {
 				// can't read yet
 				continue;
 			}
@@ -160,16 +161,24 @@ void pipe_test() {
 			isAnythingPlaying = true;
 
 			for (int k = 0; k < samplesPerPacket; k++) {
-				mixBuffer[k] += (float)pipeBuffer[k] / 32768.0f;
+				mixBuffer[k] += (float)inBuffer[k] / 32768.0f;
 			}
 		}
 
 		if (isAnythingPlaying) {
+			//printf("Mixed %d samples\n", samplesPerPacket);
+
 			for (int k = 0; k < samplesPerPacket; k++) {
 				outputBuffer[k] = clampf(mixBuffer[k], -1.0f, 1.0f) * 32767.0f;
+				allSamples.push_back(outputBuffer[k]);
 			}
 
 			encoder.write_steam_voice_packet(outputBuffer, samplesPerPacket);
+			
+			if (allSamples.size() > 44100 * 4 * 2) {
+				WriteOutputWav("mixer.wav", allSamples);
+				printf("Wrote test wav\n");
+			}
 
 			if (packetCount++ > 500) {
 				encoder.finishTestFile();

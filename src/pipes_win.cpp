@@ -31,7 +31,7 @@ std::string createInputPipe(std::string id) {
     return pipeName;
 }
 
-void readPipe(string pipeName, PipeInputBuffer* inputBuffer) {
+void readPipe(string pipeName, ThreadInputBuffer* inputBuffer) {
     map<string, HANDLE>::const_iterator iter = g_pipes.find(pipeName);
 
     if (iter == g_pipes.end()) {
@@ -41,7 +41,6 @@ void readPipe(string pipeName, PipeInputBuffer* inputBuffer) {
     HANDLE hPipe = iter->second;
 
     char buffer[1024];
-    vector<int16_t> allSamples;
 
     while (1) {
         printf("Try connect pipe\n");
@@ -54,11 +53,6 @@ void readPipe(string pipeName, PipeInputBuffer* inputBuffer) {
                 {
                     size_t bytesLeftToWrite = bytesRead;
                     size_t writePos = 0;
-
-                    int16_t* src = (int16_t*)buffer;
-                    for (int i = 0; i < bytesRead / 2; i++) {
-                        allSamples.push_back(src[i]);
-                    }
 
                     while (bytesLeftToWrite) {
                         size_t written = inputBuffer->write(buffer + writePos, bytesLeftToWrite);
