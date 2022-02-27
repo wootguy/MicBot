@@ -1,17 +1,10 @@
 # TODO:
-# reload the filename occasionaly
-# use steam ids not names (more plugin reliance tho)
+# use steam ids not names
 # youtube shorts links dont work
-# yt opening actual videos
-# persist settings in case of crash
-# linux mic stops working
-
-# keep mic active on linux:
-# pactl load-module module-sine frequency=1000
-# pactl unload-module module-sine (to stop it)
+# delete tts mp3s after finished
 
 import time, os, sys, queue, random, pafy, datetime, socket, subprocess
-from threading import Thread
+from threading import Thread, Lock
 from gtts import gTTS
 
 sven_root = '../../../..'
@@ -32,10 +25,10 @@ cached_video_urls = {} # maps a youtube link ton audio link that VLC can stream
 #command_queue.put('w00tguy\\en\\80\\https://youtu.be/-zEJEdbZUP8')
 #command_queue.put('w00tguy\\en\\80\\~testaroni')
 
-#hostname = '192.168.254.158' # woop pc
+hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
 #hostname = '192.168.254.110' # Linux VM
-hostname = '107.191.105.136' # VPS
+#hostname = '107.191.105.136' # VPS
 hostport = 1337
 our_addr = (hostname, hostport)
 
@@ -43,8 +36,9 @@ reconnect_tcp = False
 
 server_timeout = 5 # time in seconds to wait for server heartbeat before disconnecting
 resend_packets = 0 # send packets X extra times to help prevent lost packets while keeping latency down
-
-pipeIdx = 0
+g_pipe_count = 16 # should be in sync with steam_voice program
+g_reserved_pipes = set([]) # pipes that are probably about to be written to by ffmpeg
+pipe_mutex = Lock()
 
 g_valid_langs = {
 	'af': {'tld': 'com', 'code': 'af', 'name': 'African'},
@@ -136,12 +130,44 @@ def format_time(seconds):
 		else:
 			return "%ds" % int(seconds)
 
+def get_free_stream_pipe():
+	global g_media_players
+	global g_pipe_count
+	global g_reserved_pipes
+	
+	pipes = set([])
+	
+	for x in range(0, g_pipe_count):
+		pipes.add('MicBotPipe%s' % x)
+	
+	for idx, player in enumerate(g_media_players):
+		if player['player'].poll() is None:
+			pipes.remove(player['pipe'])
+			
+	for x in g_reserved_pipes:
+		pipes.remove(x)
+	
+	if len(pipes):
+		print("%s pipes available" % len(pipes))
+		return list(pipes)[0]
+	
+	return None
+
 def playtube_async(url, offset, asker):
 	global tts_id
 	global g_media_players
 	global cached_video_urls
 	global send_queue
-	global pipeIdx
+	global g_pipe_count
+	global g_reserved_pipes
+	
+	#pipe_mutex.acquire()
+	pipeName = get_free_stream_pipe()
+	if not pipeName:
+		send_queue.put("Can't overlap more than %s videos." % g_pipe_count)
+		return
+	g_reserved_pipes.add(pipeName)
+	#pipe_mutex.release()
 	
 	# https://youtu.be/GXv1hDICJK0 (age restricted)
 	# https://youtu.be/-zEJEdbZUP8 (crashes or doesn't play on yt-dlp)
@@ -163,21 +189,20 @@ def playtube_async(url, offset, asker):
 			cached_video_urls[url] = {'url': playurl, 'title': title}
 			#print("BEST URL: " + playurl)
 		
-		pipePrefix = '\\\\.\\pipe\\' if os.name == 'nt' else ''
-		pipeName = '%sMicBotPipe%s' % (pipePrefix, pipeIdx)
+		pipePrefix = '\\\\.\\pipe\\' if os.name == 'nt' else ''		
+		pipePath = '%s%s' % (pipePrefix, pipeName)
 		print("ffmpeg > %s" % pipeName)
 		
 		if not os.name == 'nt':
 			playurl = "'" + playurl + "'"
 		
-		cmd = 'ffmpeg -hide_banner -loglevel error -y -i %s -f s16le -ar 12000 -ac 1 - >%s' % (playurl, pipeName)
-		print(cmd)
-		ffmpeg = subprocess.Popen(cmd.split(' '), shell=True)
-		pipeIdx = (pipeIdx+1) % 16
+		cmd = 'ffmpeg -hide_banner -loglevel error -y -i %s -f s16le -ar 12000 -ac 1 -' % (playurl)
+		#print(cmd)
+		pipefile = open(pipePath, 'w')
+		ffmpeg = subprocess.Popen(cmd.split(' '), stdout=pipefile)
+		steam_voice.stdin.write("notify %s\n" % pipeName)
 		
-		os.system(cmd)
-		
-		#g_media_players.append({'player': player, 'message_sent': False, 'title': title, 'asker': asker})
+		g_media_players.append({'player': ffmpeg, 'pipe': pipeName, 'message_sent': False, 'title': title, 'asker': asker})
 		#print("Play offset %d: " % offset + title)
 	except Exception as e:
 		print(e)
@@ -187,6 +212,10 @@ def playtube_async(url, offset, asker):
 		t.daemon = True
 		t.start()
 		tts_id += 1
+		
+	#pipe_mutex.acquire()
+	g_reserved_pipes.remove(pipeName)
+	#pipe_mutex.release()
 
 def play_tts(speaker, text, id, lang, pitch, is_hidden):
 	global steam_voice
@@ -213,10 +242,16 @@ def play_tts(speaker, text, id, lang, pitch, is_hidden):
 		
 	totalCaps = sum(1 for c in text if c.isupper())
 	totalLower = sum(1 for c in text if c.islower())
+	volume = 1000 if totalCaps > totalLower else 5
 	
 	#steam_voice_cmd = 'play %s' % fname
 	
-	steam_voice.stdin.write(fname + "\n")
+	# stop their last speech, if any
+	if speaker in g_tts_players:
+		steam_voice.stdin.write("stop " + g_tts_players[speaker] + "\n")
+	
+	steam_voice.stdin.write("play %s %.2f %.2f\n" % (fname, volume, pitch))
+	g_tts_players[speaker] = fname
 	 
 	print("Played %d" % id)
 	
@@ -285,6 +320,8 @@ def transmit_voice():
 	global server_timeout
 	global resend_packets
 	global steam_voice
+	global send_queue
+	global g_media_players
 	
 	udp_socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 	udp_socket.bind(our_addr)
@@ -304,6 +341,15 @@ def transmit_voice():
 		if not line:
 			time.sleep(0.1)
 			print("DELAY STDOUT")
+			
+		if line.startswith('notify'):
+			pipeName = line.split(' ')[1]
+			for idx, player in enumerate(g_media_players):
+				if player['pipe'] == pipeName:
+					player['message_sent'] = True
+					send_queue.put("Now playing: " + player['title'])
+					break
+			continue
 
 		idBytes = packetId.to_bytes(2, 'big')
 		if line == "SILENCE":
@@ -312,10 +358,10 @@ def transmit_voice():
 			# this special edit will tell the plugin to not send the voice packet.
 			
 			packet = idBytes + bytes.fromhex('ff') # no packets are ever this small. Plugin will know to replace this with silence
-			print("Send %d (silent)" % packetId)
+			#print("Send %d (silent)" % packetId)
 		else:
 			packet = idBytes + bytes.fromhex(line)		
-			print("Send %d (%d bytes)" % (packetId, len(packet)))
+			#print("Send %d (%d bytes)" % (packetId, len(packet)))
 		
 		if server_addr:
 			udp_socket.sendto(packet, server_addr)
@@ -397,27 +443,15 @@ t.start()
 
 while True:
 	wasplaying = len(g_media_players) > 0
-				
+	
 	for idx, player in enumerate(g_media_players):
-		if not player['player'].is_playing() and not player['player'].will_play():
+		isRunning = player['player'].poll() is None
+		if not isRunning:
 			g_media_players.pop(idx)
 			if not player['message_sent']:
 				send_queue.put("Failed to play a video from %s" % player['asker'])
-			#print("Finished playing video")
+			print("Finished playing video")
 			break
-		elif player['player'].is_playing() and not player['message_sent']:
-			# send a chat message now that the player started
-			player['message_sent'] = True
-			send_queue.put("Now playing: " + player['title'])
-			
-	delete_keys = []
-	for key, player in g_tts_players.items():
-		if player.source and player.time > player.source.duration*(1.0/player.pitch):
-			#print("Finished tts")
-			player.delete()
-			delete_keys.append(key)
-	for key in delete_keys:
-		del g_tts_players[key]
 	
 	line = None
 	try:
@@ -469,22 +503,23 @@ while True:
 	
 		if arg == "":
 			for player in g_media_players:
-				player['player'].stop()
+				player['player'].terminate()
+				steam_voice.stdin.write('stop ' + player['pipe'] + "\n")
 			g_media_players = []
 		elif arg == "last":
 			for player in g_media_players[1:]:
-				player['player'].stop()
+				player['player'].terminate()
+				steam_voice.stdin.write('stop ' + player['pipe'] + "\n")
 			g_media_players = g_media_players[:1]
 		elif arg == "first":
 			for player in g_media_players[:-1]:
-				player['player'].stop()
+				player['player'].terminate()
+				steam_voice.stdin.write('stop ' + player['pipe'] + "\n")
 			g_media_players = g_media_players[-1:]
 			
 		if arg == "" or arg == 'speak':
-			for key, player in g_tts_players.items():
-				if player.playing:
-					player.pause()
-				player.delete()
+			for key, fname in g_tts_players.items():
+				steam_voice.stdin.write('stop ' + fname + "\n")
 			g_tts_players = {}
 		
 	

@@ -16,10 +16,6 @@ int resamplePcm(int16_t* pcm_old, int16_t* pcm_new, int oldRate, int newRate, in
 	int numSamplesNew = (float)numSamples / samplesPerStep;
 	float t = 0;
 
-	if (newRate > oldRate) {
-		fprintf(stderr, "Resampling to higher rate might have terrible quality!");
-	}
-
 	for (int i = 0; i < numSamplesNew; i++) {
 		int newIdx = t;
 		pcm_new[i] = pcm_old[newIdx];
@@ -41,7 +37,19 @@ int mixStereoToMono(int16_t* pcm, int numSamples) {
 	return numSamples / 2;
 }
 
-void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) {
+void amplify(int16_t* pcm, int numSamples, double volume) {
+	for (int i = 0; i < numSamples; i++) {
+		double samp = ((double)pcm[i] / 32768.0f);
+		pcm[i] = clampf(samp*volume, -1.0f, 1.0f) * 32767;
+	}
+}
+
+void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate, float volume, float speed) {
+	const float minSpeed = 0.1f;
+	if (speed <= minSpeed) {
+		speed = minSpeed;
+	}
+	
 	FILE* file = fopen(fileName.c_str(), "rb");
 	if (!file) {
 		fprintf(stderr, "Unable to open: %s\n", fileName.c_str());
@@ -52,8 +60,8 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 	mp3dec_init(&mp3d);
 
 	int16_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
-	int16_t resampledPcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
-	uint8_t buffer[16384];
+	int16_t* resampledPcm = new int16_t[MINIMP3_MAX_SAMPLES_PER_FRAME*(1.0f / minSpeed)];
+	uint8_t* buffer = new uint8_t[16384];
 
 	const int bufferSize = 16384; // 16kb = recommended minimum
 	int readPos = 0;
@@ -62,7 +70,7 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 
 	vector<int16_t> allSamples;
 
-	while (1) {
+	while (!inputBuffer->isFinished()) {
 		int readBytes = fread(buffer + readPos, 1, readSize, file);
 		if (readBytes == 0 && bufferLeft == 0) {
 			break;
@@ -84,12 +92,18 @@ void streamMp3(string fileName, ThreadInputBuffer* inputBuffer, int sampleRate) 
 			samples = mixStereoToMono(pcm, samples);
 		}
 
-		int writeSamples = resamplePcm(pcm, resampledPcm, info.hz, 12000, samples);
+		int writeSamples = resamplePcm(pcm, resampledPcm, info.hz, 12000*(1.0f/speed), samples);
 		//int writeSamples = samples;
 		//memcpy(resampledPcm, pcm, writeSamples*sizeof(int16_t));
+
+		if (volume != 1.0f) {
+			amplify(resampledPcm, writeSamples, volume);
+		}
 
 		inputBuffer->writeAll((char*)resampledPcm, writeSamples * sizeof(int16_t));
 	}
 	
+	delete[] resampledPcm;
+	delete[] buffer;
 	inputBuffer->flush();
 }

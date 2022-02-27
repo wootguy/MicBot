@@ -9,11 +9,16 @@ enum BUFFER_STATUS {
 	TIB_FLUSH, // input buffer can't be written to anymore. Reader should take whatever is left.
 	TIB_FLUSHED, // reader took the last of the input data from the write buffer
 	TIB_FINISHED, // reader read the last of the flushed data
+	TIB_KILL, // thread should kill itself and data should no longer be read
 };
 
 class ThreadInputBuffer {
 public:
 	std::string resourceName; // pipe or file name
+
+	// for sending messages when a video starts playing
+	bool wasReceivingSamples;
+	bool shouldNotifyPlayback;
 
 	ThreadInputBuffer(size_t bufferSize);
 	~ThreadInputBuffer();
@@ -32,9 +37,15 @@ public:
 	// finish a write before the buffer is full
 	void flush();
 
+	// clear buffers to stop them being consudmed
+	void clear();
+
+	// stop the input thread and any more reads
+	void kill();
+
 	void startPipeInputThread(std::string pipeName);
 
-	void startMp3InputThread(std::string fileName, int sampleRate);
+	void startMp3InputThread(std::string fileName, int sampleRate, float volume, float speed);
 
 	bool isFinished(); // true if input thread was terminated
 

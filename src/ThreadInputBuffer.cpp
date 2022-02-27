@@ -14,6 +14,8 @@ ThreadInputBuffer::ThreadInputBuffer(size_t bufferSize)
 	this->status.setValue(TIB_WRITE);
 	writeBuffer = new char[bufferSize];
 	readBuffer = new char[bufferSize];
+	wasReceivingSamples = false;
+	shouldNotifyPlayback = false;
 }
 
 ThreadInputBuffer::~ThreadInputBuffer()
@@ -25,6 +27,11 @@ ThreadInputBuffer::~ThreadInputBuffer()
 
 int ThreadInputBuffer::read(char* outputBuffer, size_t readSize)
 {
+	int curStatus = status.getValue();
+	if (curStatus == TIB_KILL) {
+		return -1;
+	}
+
 	size_t canRead = ::min(bufferSize - readPos, readSize);
 
 	if (readSize > bufferSize) {
@@ -37,7 +44,7 @@ int ThreadInputBuffer::read(char* outputBuffer, size_t readSize)
 		return 0;
 	}
 
-	int curStatus = status.getValue();
+	
 	bool isFlushing = curStatus == TIB_FLUSH;
 
 	if (curStatus != TIB_FULL && !isFlushing) {
@@ -55,7 +62,10 @@ int ThreadInputBuffer::read(char* outputBuffer, size_t readSize)
 	memcpy(outputBuffer, readBuffer + readPos, canRead); // read what's left of the read buffer
 
 	status.setValue(TIB_READ);
-	memcpy(readBuffer, writeBuffer, bufferSize); // refill read buffer
+	// refill read buffer
+	char* temp = readBuffer;
+	readBuffer = writeBuffer;
+	writeBuffer = temp;
 	//fprintf(stderr, "Refilled read buffer\n");
 	status.setValue(isFlushing ? TIB_FLUSHED : TIB_WRITE);
 	if (isFlushing)
@@ -75,6 +85,11 @@ size_t ThreadInputBuffer::write(char* inputBuffer, size_t inputSize)
 		return 0;
 	}
 
+	if (!wasReceivingSamples) {
+		shouldNotifyPlayback = true;
+	}
+	wasReceivingSamples = true;
+
 	size_t canWrite = ::min(bufferSize - writePos, inputSize);
 	memcpy(writeBuffer + writePos, inputBuffer, canWrite);
 	writePos += canWrite;
@@ -93,7 +108,7 @@ void ThreadInputBuffer::writeAll(char* inputBuffer, size_t inputSize)
 	size_t bytesLeftToWrite = inputSize;
 	size_t inputOffset = 0;
 
-	while (bytesLeftToWrite) {
+	while (bytesLeftToWrite && status.getValue() != TIB_KILL) {
 		size_t written = write(inputBuffer + inputOffset, bytesLeftToWrite);
 		bytesLeftToWrite -= written;
 		inputOffset += written;
@@ -116,19 +131,33 @@ void ThreadInputBuffer::flush()
 	}
 }
 
+void ThreadInputBuffer::clear()
+{
+	readPos = bufferSize;
+	if (status.getValue() == TIB_FULL) {
+		status.setValue(TIB_WRITE);
+		writePos = 0;
+	}
+}
+
+void ThreadInputBuffer::kill()
+{
+	status.setValue(TIB_KILL);
+}
+
 void ThreadInputBuffer::startPipeInputThread(std::string pipeName)
 {
 	this->resourceName = pipeName;
 	this->inputThread = thread(readPipe, pipeName, this);
 }
 
-void ThreadInputBuffer::startMp3InputThread(std::string fileName, int sampleRate)
+void ThreadInputBuffer::startMp3InputThread(std::string fileName, int sampleRate, float volume, float speed)
 {
 	this->resourceName = fileName;
-	this->inputThread = thread(streamMp3, fileName, this, sampleRate);
+	this->inputThread = thread(streamMp3, fileName, this, sampleRate, volume, speed);
 }
 
 bool ThreadInputBuffer::isFinished()
 {
-	return status.getValue() == TIB_FINISHED;
+	return status.getValue() == TIB_FINISHED || status.getValue() == TIB_KILL;
 }

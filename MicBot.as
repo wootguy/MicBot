@@ -244,8 +244,8 @@ bool doCommand(CBasePlayer@ plr, const CCommand@ args, string chatText, bool inC
 		else if (args[0] == '.mpitch') {
 			int pitch = atoi(args[1]);
 			
-			if (pitch < 1) {
-				pitch = 1;
+			if (pitch < 10) {
+				pitch = 10;
 			} else if (pitch > 200) {
 				pitch = 200;
 			}

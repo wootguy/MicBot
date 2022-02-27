@@ -29,3 +29,25 @@ void WriteOutputWav(string fname, vector<int16_t>& allSamples) {
 	out.close();
 	fprintf(stderr, "Wrote file!\n");
 }
+
+vector<string> splitString(string str, const char* delimitters)
+{
+	vector<string> split;
+	if (str.size() == 0)
+		return split;
+
+	// somehow plain assignment doesn't create a copy and even modifies the parameter that was passed by value (WTF!?!)
+	//string copy = str; 
+	string copy;
+	for (int i = 0; i < str.length(); i++)
+		copy += str[i];
+
+	char* tok = strtok((char*)copy.c_str(), delimitters);
+
+	while (tok != NULL)
+	{
+		split.push_back(tok);
+		tok = strtok(NULL, delimitters);
+	}
+	return split;
+}

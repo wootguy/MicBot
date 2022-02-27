@@ -3,10 +3,10 @@ from threading import Thread
 
 # "client" that generates the voice data
 #hostname = '47.157.183.178' # twlz
-#hostname = '192.168.254.158' # woop pc
+hostname = '192.168.254.158' # woop pc
 #hostname = '192.168.254.106' # Windows VM
 #hostname = '192.168.254.110' # Linux VM
-hostname = '107.191.105.136' # VPS
+#hostname = '107.191.105.136' # VPS
 hostport = 1337
 client_address = (hostname, hostport)
 
@@ -196,7 +196,6 @@ def receive_voice_data():
 	udp_socket.settimeout(1)
 	print("Contacting voice data client %s:%d" % (hostname, hostport))
 
-	# Receive and print data 32 bytes at a time, as long as the client is sending something
 	while True:
 		heartbeat(udp_socket)
 		
@@ -251,9 +250,13 @@ def receive_voice_data():
 		elif packetId > expectedPacketId:
 			# larger counter than expected. A packet was lost or sent out of order. Ask for the missing ones.
 			#print("Expected %d but got %d" % (expectedPacketId, packetId))
+			
+			asked = 0
 			for x in range(expectedPacketId, packetId):
 				all_packets.append(x)
-				udp_socket.sendto(x.to_bytes(2, 'big'), client_address)
+				if asked < 16: # more than this means total disconnect probably. Don't waste bandwidth
+					udp_socket.sendto(x.to_bytes(2, 'big'), client_address)
+				asked += 1
 				#print("  Asked to resend %d" % x)
 				
 			expectedPacketId = packetId + 1

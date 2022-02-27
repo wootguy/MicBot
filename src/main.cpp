@@ -140,7 +140,7 @@ void pipe_test() {
 	int packetCount = 0;
 
 	CommandQueue commands;
-	commands.putCommand("../tts/tts0.mp3");
+	commands.putCommand("play ../tts/tts0.mp3 1.0 1");
 
 	while (1) {
 		while (getTimeMillis() < nextPacketMillis) {
@@ -151,7 +151,7 @@ void pipe_test() {
 
 		// the plugin plays packets 0.1ms faster than normal because otherwise the mic
 		// starts to cut out after a minute or so. The packets should be generated
-		// slightly faster too so that the plugin doesn't slowly deplete, causing a gap once empty.
+		// slightly faster too so that the plugin buffer doesn't deplete faster than it refills.
 		if (packetCount++ % 10 == 0) {
 			nextPacketMillis -= 1;
 		}
@@ -166,6 +166,11 @@ void pipe_test() {
 				fprintf(stderr, "Finished %s\n", inputStreams[i]->resourceName.c_str());
 				delete inputStreams[i];
 				continue;
+			}
+
+			if (inputStreams[i]->shouldNotifyPlayback) {
+				inputStreams[i]->shouldNotifyPlayback = false;
+				printf("notify %s\n", inputStreams[i]->resourceName.c_str());
 			}
 
 			newStreams.push_back(inputStreams[i]);
@@ -210,11 +215,51 @@ void pipe_test() {
 		while (commands.hasCommand()) {
 			string command = commands.getNextCommand();
 
-			if (command.find(".mp3") != string::npos) {
+			if (command.find("play") == 0) {
+				vector<string> args = splitString(command, " ");
+				if (args.size() < 4) {
+					fprintf(stderr, "Wrong number of args in play command: %s\n", command.c_str());
+					continue;
+				}
+				string fname = args[1];
+				string svol = args[2];
+				string speed = args[3];
+				float volume = atof(svol.c_str());
+				float fspeed = atof(speed.c_str());
+
 				ThreadInputBuffer* mp3Input = new ThreadInputBuffer(PIPE_BUFFER_SIZE);
-				mp3Input->startMp3InputThread(command, sampleRate);
+				mp3Input->startMp3InputThread(fname, sampleRate, volume, fspeed);
 				inputStreams.push_back(mp3Input);
-				fprintf(stderr, "Play mp3: %s\n", command.c_str());
+				fprintf(stderr, "Play %s (%.2f x%.2f)\n", fname.c_str(), volume, fspeed);
+			}
+
+			if (command.find("notify") == 0) {
+				string id = command.substr(strlen("notify "));
+
+				for (int i = 0; i < inputStreams.size(); i++) {
+					if (inputStreams[i]->resourceName == id) {
+						fprintf(stderr, "Notify '%s'\n", id.c_str());
+						inputStreams[i]->wasReceivingSamples = false;
+						inputStreams[i]->shouldNotifyPlayback = false;
+					}
+				}
+			}
+
+			if (command.find("stop") == 0) {
+				string id = command.substr(strlen("stop "));
+
+				for (int i = 0; i < inputStreams.size(); i++) {
+					if (inputStreams[i]->resourceName == id) {
+						if (id.find(".mp3") != string::npos) {
+							fprintf(stderr, "Killing '%s'\n", id.c_str());
+							inputStreams[i]->kill();
+						}
+						else {
+							fprintf(stderr, "Stopping '%s'\n", id.c_str());
+							inputStreams[i]->clear();
+						}
+					}
+				}
 			}
 		}
 	}
